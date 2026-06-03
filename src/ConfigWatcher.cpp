@@ -24,20 +24,19 @@ ConfigWatcher::ConfigWatcher(QObject *parent)
 
     m_configPath = configDir + QStringLiteral("/dock.json");
 
-    if (!QFile::exists(m_configPath)) {
+    if (!QFile::exists(m_configPath))
         copyDefaultConfig();
-    }
 
     load();
 
     m_watcher.addPath(m_configPath);
-    connect(&m_watcher, &QFileSystemWatcher::fileChanged, this, &ConfigWatcher::onFileChanged);
+    connect(&m_watcher, &QFileSystemWatcher::fileChanged,
+            this, &ConfigWatcher::onFileChanged);
 }
 
 void ConfigWatcher::copyDefaultConfig()
 {
-    // Try installed location first, then source tree
-    QStringList candidates = {
+    const QStringList candidates = {
         QStringLiteral(QML_INSTALL_DIR "/../default_dock.json"),
         QStringLiteral("data/default_dock.json"),
     };
@@ -48,23 +47,8 @@ void ConfigWatcher::copyDefaultConfig()
         }
     }
 
-    // Write a minimal built-in default if no file found
-    QJsonObject root;
-    root[QStringLiteral("pinned")] = QJsonArray{
-        QStringLiteral("org.kde.dolphin"),
-        QStringLiteral("org.kde.konsole"),
-        QStringLiteral("org.mozilla.firefox"),
-    };
-    root[QStringLiteral("position")] = QStringLiteral("bottom");
-    root[QStringLiteral("iconSize")] = 52;
-    root[QStringLiteral("padding")] = 8;
-    root[QStringLiteral("spacing")] = 6;
-
-    QSaveFile f(m_configPath);
-    if (f.open(QIODevice::WriteOnly)) {
-        f.write(QJsonDocument(root).toJson());
-        f.commit();
-    }
+    // Built-in minimal default when no data file is found
+    resetToDefaults();
 }
 
 void ConfigWatcher::load()
@@ -86,12 +70,11 @@ void ConfigWatcher::onFileChanged(const QString &path)
 {
     load();
     emit configChanged();
-    // Re-add path in case the editor replaced the file (rename semantics)
     if (!m_watcher.files().contains(path))
         m_watcher.addPath(path);
 }
 
-// ── Accessors ──────────────────────────────────────────────────────────────
+// ── Position & geometry ────────────────────────────────────────────────────
 
 QString ConfigWatcher::position() const
 {
@@ -118,6 +101,118 @@ int ConfigWatcher::screenIndex() const
     return m_config.value(QStringLiteral("screenIndex")).toInt(0);
 }
 
+// ── Dock bar background ────────────────────────────────────────────────────
+
+QString ConfigWatcher::backgroundColor() const
+{
+    return m_config.value(QStringLiteral("background")).toObject()
+        .value(QStringLiteral("color")).toString(QStringLiteral("#1a1a2e"));
+}
+
+double ConfigWatcher::backgroundOpacity() const
+{
+    return m_config.value(QStringLiteral("background")).toObject()
+        .value(QStringLiteral("opacity")).toDouble(0.85);
+}
+
+int ConfigWatcher::backgroundRadius() const
+{
+    return m_config.value(QStringLiteral("background")).toObject()
+        .value(QStringLiteral("radius")).toInt(14);
+}
+
+// ── Per-icon background ────────────────────────────────────────────────────
+
+QString ConfigWatcher::iconBgShape() const
+{
+    return m_config.value(QStringLiteral("iconBackground")).toObject()
+        .value(QStringLiteral("shape")).toString(QStringLiteral("none"));
+}
+
+QString ConfigWatcher::iconBgColor() const
+{
+    return m_config.value(QStringLiteral("iconBackground")).toObject()
+        .value(QStringLiteral("color")).toString(QStringLiteral("#ffffff"));
+}
+
+double ConfigWatcher::iconBgOpacity() const
+{
+    return m_config.value(QStringLiteral("iconBackground")).toObject()
+        .value(QStringLiteral("opacity")).toDouble(0.12);
+}
+
+int ConfigWatcher::iconBgPadding() const
+{
+    return m_config.value(QStringLiteral("iconBackground")).toObject()
+        .value(QStringLiteral("padding")).toInt(6);
+}
+
+int ConfigWatcher::iconBgRadius() const
+{
+    return m_config.value(QStringLiteral("iconBackground")).toObject()
+        .value(QStringLiteral("radius")).toInt(10);
+}
+
+QString ConfigWatcher::iconBgBorderColor() const
+{
+    return m_config.value(QStringLiteral("iconBackground")).toObject()
+        .value(QStringLiteral("borderColor")).toString(QStringLiteral("#ffffff"));
+}
+
+int ConfigWatcher::iconBgBorderWidth() const
+{
+    return m_config.value(QStringLiteral("iconBackground")).toObject()
+        .value(QStringLiteral("borderWidth")).toInt(0);
+}
+
+// ── Hover effects ──────────────────────────────────────────────────────────
+
+int ConfigWatcher::hoverLiftPx() const
+{
+    return m_config.value(QStringLiteral("hover")).toObject()
+        .value(QStringLiteral("liftPx")).toInt(6);
+}
+
+double ConfigWatcher::hoverScaleBoost() const
+{
+    return m_config.value(QStringLiteral("hover")).toObject()
+        .value(QStringLiteral("scaleBoost")).toDouble(1.05);
+}
+
+double ConfigWatcher::hoverGlowOpacity() const
+{
+    return m_config.value(QStringLiteral("hover")).toObject()
+        .value(QStringLiteral("glowOpacity")).toDouble(0.35);
+}
+
+QString ConfigWatcher::hoverGlowColor() const
+{
+    return m_config.value(QStringLiteral("hover")).toObject()
+        .value(QStringLiteral("glowColor")).toString(QStringLiteral("auto"));
+}
+
+// ── Scroll-to-zoom ─────────────────────────────────────────────────────────
+
+int ConfigWatcher::scrollStepPx() const
+{
+    return m_config.value(QStringLiteral("scroll")).toObject()
+        .value(QStringLiteral("stepPx")).toInt(4);
+}
+
+int ConfigWatcher::scrollMinSize() const
+{
+    return m_config.value(QStringLiteral("scroll")).toObject()
+        .value(QStringLiteral("minSize")).toInt(24);
+}
+
+int ConfigWatcher::scrollMaxSize() const
+{
+    return m_config.value(QStringLiteral("scroll")).toObject()
+        .value(QStringLiteral("maxSize")).toInt(128);
+}
+
+// ── Behaviour ──────────────────────────────────────────────────────────────
+
 bool ConfigWatcher::autohide() const
 {
     return m_config.value(QStringLiteral("autohide")).toBool(false);
@@ -138,41 +233,27 @@ int ConfigWatcher::magnifyRadius() const
     return m_config.value(QStringLiteral("magnifyRadius")).toInt(120);
 }
 
-QString ConfigWatcher::backgroundColor() const
-{
-    const QJsonObject bg = m_config.value(QStringLiteral("background")).toObject();
-    return bg.value(QStringLiteral("color")).toString(QStringLiteral("#1a1a2e"));
-}
-
-double ConfigWatcher::backgroundOpacity() const
-{
-    const QJsonObject bg = m_config.value(QStringLiteral("background")).toObject();
-    return bg.value(QStringLiteral("opacity")).toDouble(0.85);
-}
-
-int ConfigWatcher::backgroundRadius() const
-{
-    const QJsonObject bg = m_config.value(QStringLiteral("background")).toObject();
-    return bg.value(QStringLiteral("radius")).toInt(14);
-}
+// ── Running indicator ──────────────────────────────────────────────────────
 
 bool ConfigWatcher::runningIndicatorVisible() const
 {
-    const QJsonObject ind = m_config.value(QStringLiteral("runningIndicator")).toObject();
-    return ind.value(QStringLiteral("visible")).toBool(true);
+    return m_config.value(QStringLiteral("runningIndicator")).toObject()
+        .value(QStringLiteral("visible")).toBool(true);
 }
 
 QString ConfigWatcher::runningIndicatorColor() const
 {
-    const QJsonObject ind = m_config.value(QStringLiteral("runningIndicator")).toObject();
-    return ind.value(QStringLiteral("color")).toString(QStringLiteral("#ffffff"));
+    return m_config.value(QStringLiteral("runningIndicator")).toObject()
+        .value(QStringLiteral("color")).toString(QStringLiteral("#ffffff"));
 }
 
 int ConfigWatcher::runningIndicatorSize() const
 {
-    const QJsonObject ind = m_config.value(QStringLiteral("runningIndicator")).toObject();
-    return ind.value(QStringLiteral("size")).toInt(4);
+    return m_config.value(QStringLiteral("runningIndicator")).toObject()
+        .value(QStringLiteral("size")).toInt(4);
 }
+
+// ── Pinned apps ────────────────────────────────────────────────────────────
 
 QStringList ConfigWatcher::pinnedApps() const
 {
@@ -182,6 +263,68 @@ QStringList ConfigWatcher::pinnedApps() const
     for (const QJsonValue &v : arr)
         result << v.toString();
     return result;
+}
+
+// ── Mutators ───────────────────────────────────────────────────────────────
+
+void ConfigWatcher::setIconSize(int px)
+{
+    const int clamped = qBound(scrollMinSize(), px, scrollMaxSize());
+    if (clamped == iconSize())
+        return;
+    m_config[QStringLiteral("iconSize")] = clamped;
+    emit configChanged();
+    save();
+}
+
+void ConfigWatcher::setMagnifyScale(double s)
+{
+    m_config[QStringLiteral("magnifyScale")] = s;
+    emit configChanged();
+    save();
+}
+
+void ConfigWatcher::setHoverLiftPx(int px)
+{
+    QJsonObject hover = m_config.value(QStringLiteral("hover")).toObject();
+    hover[QStringLiteral("liftPx")] = px;
+    m_config[QStringLiteral("hover")] = hover;
+    emit configChanged();
+    save();
+}
+
+void ConfigWatcher::setBackgroundOpacity(double v)
+{
+    QJsonObject bg = m_config.value(QStringLiteral("background")).toObject();
+    bg[QStringLiteral("opacity")] = v;
+    m_config[QStringLiteral("background")] = bg;
+    emit configChanged();
+    save();
+}
+
+void ConfigWatcher::setAutohide(bool on)
+{
+    m_config[QStringLiteral("autohide")] = on;
+    emit configChanged();
+    save();
+}
+
+void ConfigWatcher::setIconBgShape(const QString &shape)
+{
+    QJsonObject ib = m_config.value(QStringLiteral("iconBackground")).toObject();
+    ib[QStringLiteral("shape")] = shape;
+    m_config[QStringLiteral("iconBackground")] = ib;
+    emit configChanged();
+    save();
+}
+
+void ConfigWatcher::setIconBgOpacity(double v)
+{
+    QJsonObject ib = m_config.value(QStringLiteral("iconBackground")).toObject();
+    ib[QStringLiteral("opacity")] = v;
+    m_config[QStringLiteral("iconBackground")] = ib;
+    emit configChanged();
+    save();
 }
 
 void ConfigWatcher::setPinnedApps(const QStringList &apps)
@@ -201,6 +344,59 @@ void ConfigWatcher::save()
     }
     f.write(QJsonDocument(m_config).toJson());
     f.commit();
+}
+
+void ConfigWatcher::resetToDefaults()
+{
+    m_config = QJsonObject{
+        {QStringLiteral("pinned"), QJsonArray{
+            QStringLiteral("org.kde.dolphin"),
+            QStringLiteral("org.kde.konsole"),
+            QStringLiteral("org.mozilla.firefox"),
+            QStringLiteral("org.kde.kate"),
+        }},
+        {QStringLiteral("position"), QStringLiteral("bottom")},
+        {QStringLiteral("iconSize"), 52},
+        {QStringLiteral("padding"), 8},
+        {QStringLiteral("spacing"), 6},
+        {QStringLiteral("screenIndex"), 0},
+        {QStringLiteral("background"), QJsonObject{
+            {QStringLiteral("color"),   QStringLiteral("#1a1a2e")},
+            {QStringLiteral("opacity"), 0.85},
+            {QStringLiteral("radius"),  14},
+        }},
+        {QStringLiteral("iconBackground"), QJsonObject{
+            {QStringLiteral("shape"),       QStringLiteral("none")},
+            {QStringLiteral("color"),       QStringLiteral("#ffffff")},
+            {QStringLiteral("opacity"),     0.12},
+            {QStringLiteral("padding"),     6},
+            {QStringLiteral("radius"),      10},
+            {QStringLiteral("borderColor"), QStringLiteral("#ffffff")},
+            {QStringLiteral("borderWidth"), 0},
+        }},
+        {QStringLiteral("hover"), QJsonObject{
+            {QStringLiteral("liftPx"),      6},
+            {QStringLiteral("scaleBoost"),  1.05},
+            {QStringLiteral("glowOpacity"), 0.35},
+            {QStringLiteral("glowColor"),   QStringLiteral("auto")},
+        }},
+        {QStringLiteral("scroll"), QJsonObject{
+            {QStringLiteral("stepPx"),  4},
+            {QStringLiteral("minSize"), 24},
+            {QStringLiteral("maxSize"), 128},
+        }},
+        {QStringLiteral("autohide"),      false},
+        {QStringLiteral("magnify"),       true},
+        {QStringLiteral("magnifyScale"),  1.5},
+        {QStringLiteral("magnifyRadius"), 120},
+        {QStringLiteral("runningIndicator"), QJsonObject{
+            {QStringLiteral("visible"), true},
+            {QStringLiteral("color"),   QStringLiteral("#ffffff")},
+            {QStringLiteral("size"),    4},
+        }},
+    };
+    emit configChanged();
+    save();
 }
 
 QString ConfigWatcher::configPath() const

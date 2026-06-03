@@ -3,9 +3,11 @@
 // and the visual DockBar component.
 //
 // Context properties available:
-//   config       → ConfigWatcher*  (position, iconSize, autohide, ...)
-//   dockModel    → DockModel*      (list of dock entries)
-//   taskTracker  → TaskTracker*    (running window state)
+//   config              → ConfigWatcher*       (position, iconSize, autohide, ...)
+//   settings            → SettingsController*  (validated mutators)
+//   dockModel           → DockModel*           (list of dock entries)
+//   taskTracker         → TaskTracker*         (running window state)
+//   iconThemeDetector   → IconThemeDetector*   (KDE theme name)
 
 import QtQuick 2.15
 import QtQuick.Window 2.15
@@ -13,11 +15,9 @@ import QtQuick.Window 2.15
 Window {
     id: root
 
-    // Make window transparent so the rounded dock bar shows through
     color: "transparent"
     flags: Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus
 
-    // Adjust window dimensions based on dock orientation
     readonly property bool isHorizontal: config.position === "bottom"
                                       || config.position === "top"
 
@@ -26,24 +26,15 @@ Window {
 
     visible: true
 
-    // Auto-hide state
-    property bool docHidden: config.autohide
+    // Auto-hide: reveal when mouse enters, hide when it leaves
+    property bool dockHidden: config.autohide
 
-    // Edge-reveal strip for auto-hide mode
     MouseArea {
-        id: edgeStrip
         anchors.fill: parent
         hoverEnabled: true
         propagateComposedEvents: true
-
-        onEntered: {
-            if (config.autohide)
-                revealAnimation.start()
-        }
-        onExited: {
-            if (config.autohide)
-                hideAnimation.start()
-        }
+        onEntered: if (config.autohide) root.dockHidden = false
+        onExited:  if (config.autohide) root.dockHidden = true
     }
 
     DockBar {
@@ -51,7 +42,6 @@ Window {
         anchors.centerIn: parent
         position: config.position
 
-        // Slide off-screen when hidden
         property int hiddenOffset: {
             switch (config.position) {
             case "bottom": return root.height
@@ -63,34 +53,19 @@ Window {
         }
 
         transform: Translate {
-            id: slideTranslate
             x: (config.position === "left" || config.position === "right")
-               ? (root.docHidden ? dockBar.hiddenOffset : 0)
-               : 0
+               ? (root.dockHidden ? dockBar.hiddenOffset : 0) : 0
             y: (config.position === "bottom" || config.position === "top")
-               ? (root.docHidden ? dockBar.hiddenOffset : 0)
-               : 0
+               ? (root.dockHidden ? dockBar.hiddenOffset : 0) : 0
 
             Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
             Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
         }
     }
 
-    NumberAnimation {
-        id: revealAnimation
-        target: root
-        property: "docHidden"
-        to: 0
-        duration: 0
-        onStarted: root.docHidden = false
-    }
-
-    NumberAnimation {
-        id: hideAnimation
-        target: root
-        property: "docHidden"
-        to: 1
-        duration: 0
-        onStarted: root.docHidden = true
+    // Settings panel — loaded on demand and shared between ContextMenu instances
+    SettingsPanel {
+        id: settingsPanel
+        parent: root.contentItem
     }
 }

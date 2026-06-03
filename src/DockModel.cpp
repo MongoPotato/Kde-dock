@@ -5,6 +5,7 @@
 
 #include "DockModel.h"
 #include "ConfigWatcher.h"
+#include "IconThemeDetector.h"
 #include "TaskTracker.h"
 
 #include <QDesktopServices>
@@ -45,6 +46,11 @@ void DockModel::setTaskTracker(TaskTracker *tracker)
     connect(tracker, &TaskTracker::runningAppsChanged, this, &DockModel::onRunningAppsChanged);
     connect(tracker, &TaskTracker::windowUrgent, this, &DockModel::onWindowUrgent);
     connect(tracker, &TaskTracker::windowCountChanged, this, &DockModel::onWindowCountChanged);
+}
+
+void DockModel::setIconThemeDetector(IconThemeDetector *detector)
+{
+    connect(detector, &IconThemeDetector::themeChanged, this, &DockModel::refreshAllIcons);
 }
 
 int DockModel::rowCount(const QModelIndex &parent) const
@@ -142,6 +148,7 @@ void DockModel::pinApp(const QString &appId)
         pinned.append(appId);
         m_config->setPinnedApps(pinned);
         m_config->save();
+        rebuild();  // apply immediately; don't wait for async file-watcher
     }
 }
 
@@ -151,6 +158,7 @@ void DockModel::unpinApp(const QString &appId)
     if (pinned.removeAll(appId)) {
         m_config->setPinnedApps(pinned);
         m_config->save();
+        rebuild();  // apply immediately; don't wait for async file-watcher
     }
 }
 
@@ -172,6 +180,35 @@ void DockModel::closeApp(const QString &appId)
 {
     if (m_tracker)
         m_tracker->closeWindows(appId);
+}
+
+void DockModel::addAppDialog()
+{
+    // Launch KDE application chooser; result is handled externally
+    QProcess::startDetached(QStringLiteral("kioclient5"), {});
+}
+
+bool DockModel::isAppRunning(const QString &appId) const
+{
+    const int idx = indexOf(appId);
+    return idx >= 0 && m_entries.at(idx).running;
+}
+
+bool DockModel::isAppPinned(const QString &appId) const
+{
+    const int idx = indexOf(appId);
+    return idx >= 0 && m_entries.at(idx).pinned;
+}
+
+int DockModel::windowCountForApp(const QString &appId) const
+{
+    return m_windowCounts.value(appId, 0);
+}
+
+QString DockModel::displayNameForApp(const QString &appId) const
+{
+    const int idx = indexOf(appId);
+    return idx >= 0 ? m_entries.at(idx).displayName : appId;
 }
 
 void DockModel::onConfigChanged()
@@ -205,4 +242,11 @@ void DockModel::onWindowCountChanged(const QString &appId, int count)
         const QModelIndex mi = index(idx);
         emit dataChanged(mi, mi, {WindowCountRole});
     }
+}
+
+void DockModel::refreshAllIcons()
+{
+    if (m_entries.isEmpty())
+        return;
+    emit dataChanged(index(0), index(m_entries.size() - 1), {IconNameRole});
 }

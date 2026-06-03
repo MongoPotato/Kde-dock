@@ -4,14 +4,18 @@
 // we explicitly want to avoid.
 //
 // Context properties injected into QML:
-//   "dockModel"   → DockModel*       list of launchers
-//   "taskTracker" → TaskTracker*     open window state
-//   "config"      → ConfigWatcher*   live settings
+//   "dockModel"          → DockModel*           list of launchers
+//   "taskTracker"        → TaskTracker*          open window state
+//   "config"             → ConfigWatcher*        live settings
+//   "settings"           → SettingsController*   validated settings mutations
+//   "iconThemeDetector"  → IconThemeDetector*    KDE theme auto-detection
 
 #include "ConfigWatcher.h"
 #include "DockModel.h"
 #include "IconProvider.h"
+#include "IconThemeDetector.h"
 #include "LayerShellWindow.h"
+#include "SettingsController.h"
 #include "TaskTracker.h"
 
 #include <QFile>
@@ -26,10 +30,17 @@ int main(int argc, char *argv[])
     app.setApplicationName(QStringLiteral("kdock"));
     app.setOrganizationName(QStringLiteral("kdock"));
 
+    // Detect KDE icon theme before constructing other objects so all
+    // subsequent QIcon::fromTheme() calls use the correct theme.
+    IconThemeDetector iconThemeDetector;
+
     ConfigWatcher config;
     TaskTracker taskTracker;
     DockModel dockModel(&config);
     dockModel.setTaskTracker(&taskTracker);
+    dockModel.setIconThemeDetector(&iconThemeDetector);
+
+    SettingsController settingsController(&config, &iconThemeDetector);
 
     QQmlApplicationEngine engine;
 
@@ -37,9 +48,11 @@ int main(int argc, char *argv[])
     engine.addImageProvider(QStringLiteral("kdock"), new IconProvider());
 
     // Expose C++ objects to QML
-    engine.rootContext()->setContextProperty(QStringLiteral("dockModel"), &dockModel);
-    engine.rootContext()->setContextProperty(QStringLiteral("taskTracker"), &taskTracker);
-    engine.rootContext()->setContextProperty(QStringLiteral("config"), &config);
+    engine.rootContext()->setContextProperty(QStringLiteral("dockModel"),         &dockModel);
+    engine.rootContext()->setContextProperty(QStringLiteral("taskTracker"),        &taskTracker);
+    engine.rootContext()->setContextProperty(QStringLiteral("config"),             &config);
+    engine.rootContext()->setContextProperty(QStringLiteral("settings"),           &settingsController);
+    engine.rootContext()->setContextProperty(QStringLiteral("iconThemeDetector"),  &iconThemeDetector);
 
     // Resolve QML directory — installed location first, then build tree
     const QString qmlInstallDir = QStringLiteral(QML_INSTALL_DIR);

@@ -3,10 +3,14 @@
 //   scale = 1 + (maxExtraScale * Math.max(0, 1 - dist / magnetRadius))
 // where dist is pixels from cursor to item centre.
 // This is computed in a JS function called from each DockItem's
-// MouseArea.onPositionChanged via a Connections to the bar's MouseArea.
+// Connections to this bar's cursor properties.
+//
+// Scroll-to-zoom uses WheelHandler (Qt 6) which correctly handles both
+// mouse wheel clicks (angleDelta.y = ±120) and high-resolution touchpad
+// events (fractional angleDelta values).
 //
 // Bindings:
-//   config.position          → layout direction (Row / Column)
+//   config.position          → layout direction
 //   config.iconSize          → base icon size
 //   config.padding           → bar padding
 //   config.spacing           → spacing between icons
@@ -16,9 +20,13 @@
 //   config.backgroundColor   → bar background colour
 //   config.backgroundOpacity → bar background opacity
 //   config.backgroundRadius  → bar corner radius
+//   config.scrollStepPx      → icon size change per wheel click
+//   config.scrollMinSize     → scroll minimum icon size
+//   config.scrollMaxSize     → scroll maximum icon size
 //   dockModel                → ListView model
 
 import QtQuick 2.15
+import QtQuick.Controls 2.15
 
 Item {
     id: root
@@ -26,7 +34,7 @@ Item {
     property string position: "bottom"
     readonly property bool isHorizontal: position === "bottom" || position === "top"
 
-    // Current cursor position relative to this item (updated by inner MouseArea)
+    // Current cursor position relative to this item (updated by overlay MouseArea)
     property real cursorX: -1000
     property real cursorY: -1000
 
@@ -40,24 +48,22 @@ Item {
         return 1.0 + extra * Math.max(0, 1 - dist / config.magnifyRadius)
     }
 
-    // Size the bar to fit its content
     implicitWidth:  isHorizontal ? itemRow.implicitWidth  + config.padding * 2
                                  : config.iconSize        + config.padding * 2
     implicitHeight: isHorizontal ? config.iconSize        + config.padding * 2
                                  : itemRow.implicitHeight + config.padding * 2
 
-    // Background
+    // ── Background ───────────────────────────────────────────────────────
     Rectangle {
         anchors.fill: parent
-        color: config.backgroundColor
+        color:   config.backgroundColor
         opacity: config.backgroundOpacity
-        radius: config.backgroundRadius
+        radius:  config.backgroundRadius
 
-        // Smooth add/remove of the entire bar
         Behavior on opacity { NumberAnimation { duration: 150 } }
     }
 
-    // Overlay MouseArea to track cursor for magnification
+    // ── Cursor tracker for magnification ─────────────────────────────────
     MouseArea {
         id: barMouse
         anchors.fill: parent
@@ -72,13 +78,45 @@ Item {
             root.cursorX = -1000
             root.cursorY = -1000
         }
+        onClicked: (event) => {
+            if (event.button === Qt.RightButton) {
+                barContextMenu.mode = "dock"
+                barContextMenu.popup()
+            }
+            event.accepted = false
+        }
     }
 
-    // Icon layout — Row for horizontal, Column for vertical docks
+    // ── Scroll-to-zoom handler ───────────────────────────────────────────
+    // WheelHandler is preferred over MouseArea.onWheel in Qt 6 because it
+    // correctly handles high-resolution touchpad scroll events and gives us
+    // the angleDelta in both X and Y axes.
+    //
+    // We use angleDelta.y: positive = scroll up = icon grows.
+    // Each "click" of a standard scroll wheel = 120 units.
+    // We map 120 units → config.scrollStepPx pixels of icon size change.
+    WheelHandler {
+        id: scrollZoom
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+        onWheel: (event) => {
+            if (event.angleDelta.y === 0) {
+                event.accepted = false
+                return
+            }
+            const delta = event.angleDelta.y / 120
+            const newSize = Math.max(config.scrollMinSize,
+                            Math.min(config.scrollMaxSize,
+                                     config.iconSize + delta * config.scrollStepPx))
+            config.setIconSize(newSize)
+            event.accepted = true
+        }
+    }
+
+    // ── Icon layout — Row for horizontal, Column for vertical docks ──────
     Grid {
         id: itemRow
         anchors.centerIn: parent
-        columns: isHorizontal ? -1 : 1  // -1 = unlimited columns (use rows)
+        columns: isHorizontal ? -1 : 1
         rows:    isHorizontal ? 1 : -1
         spacing: config.spacing
 
@@ -91,12 +129,17 @@ Item {
                 required property string iconName
                 required property bool isPinned
                 required property bool isRunning
-                required property int windowCount
+                required property int  windowCount
                 required property bool isUrgent
 
-                dockBar: root
+                dockBar:  root
                 position: root.position
             }
         }
+    }
+
+    // ── Dock-level context menu ───────────────────────────────────────────
+    ContextMenu {
+        id: barContextMenu
     }
 }

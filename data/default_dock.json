@@ -18,6 +18,29 @@
     "radius":  14
   },
 
+  "iconBackground": {
+    "shape":       "none",
+    "color":       "#ffffff",
+    "opacity":     0.12,
+    "padding":     6,
+    "radius":      10,
+    "borderColor": "#ffffff",
+    "borderWidth": 0
+  },
+
+  "hover": {
+    "liftPx":      6,
+    "scaleBoost":  1.05,
+    "glowOpacity": 0.35,
+    "glowColor":   "auto"
+  },
+
+  "scroll": {
+    "stepPx":  4,
+    "minSize": 24,
+    "maxSize": 128
+  },
+
   "autohide":      false,
   "magnify":       true,
   "magnifyScale":  1.5,

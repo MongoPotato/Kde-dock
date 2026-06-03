@@ -27,6 +27,8 @@ set(SOURCES
     src/TaskTracker.cpp
     src/ConfigWatcher.cpp
     src/IconProvider.cpp
+    src/IconThemeDetector.cpp
+    src/SettingsController.cpp
 )
 
 add_executable(kdock ${SOURCES})
@@ -69,3 +71,9 @@ endif()
 install(TARGETS kdock DESTINATION bin)
 install(DIRECTORY qml/ DESTINATION share/kdock/qml)
 install(FILES data/default_dock.json DESTINATION share/kdock)
+
+option(BUILD_TESTS "Build the Qt Test suite" OFF)
+if(BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

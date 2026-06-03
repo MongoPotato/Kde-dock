@@ -9,6 +9,7 @@
 #include <QStringList>
 
 class ConfigWatcher;
+class IconThemeDetector;
 class TaskTracker;
 
 class DockModel : public QAbstractListModel {
@@ -29,6 +30,7 @@ public:
     explicit DockModel(ConfigWatcher *config, QObject *parent = nullptr);
 
     void setTaskTracker(TaskTracker *tracker);
+    void setIconThemeDetector(IconThemeDetector *detector);
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
@@ -38,12 +40,20 @@ public:
     Q_INVOKABLE void unpinApp(const QString &appId);
     Q_INVOKABLE void launchApp(const QString &appId);
     Q_INVOKABLE void closeApp(const QString &appId);
+    Q_INVOKABLE void addAppDialog();
+
+    // Query helpers used by ContextMenu.qml
+    Q_INVOKABLE bool    isAppRunning(const QString &appId) const;
+    Q_INVOKABLE bool    isAppPinned(const QString &appId) const;
+    Q_INVOKABLE int     windowCountForApp(const QString &appId) const;
+    Q_INVOKABLE QString displayNameForApp(const QString &appId) const;
 
 public slots:
     void onConfigChanged();
     void onRunningAppsChanged(const QStringList &appIds);
     void onWindowUrgent(const QString &appId);
     void onWindowCountChanged(const QString &appId, int count);
+    void refreshAllIcons();
 
 private:
     struct DockEntry {
