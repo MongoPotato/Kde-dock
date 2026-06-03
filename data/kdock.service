@@ -1,0 +1,21 @@
+# data/kdock.service
+# systemd user service for KDock.
+# Installed to ~/.config/systemd/user/kdock.service by install.sh.
+# Start manually: systemctl --user start kdock
+# Enable on login: systemctl --user enable kdock  (done automatically by install.sh)
+
+[Unit]
+Description=KDock — application dock for KDE Plasma 6
+After=plasma-plasmashell.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/kdock
+Restart=on-failure
+RestartSec=3
+Environment=WAYLAND_DISPLAY=%i
+TimeoutStartSec=30
+
+[Install]
+WantedBy=graphical-session.target

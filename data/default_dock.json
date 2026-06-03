@@ -1,0 +1,31 @@
+{
+  "pinned": [
+    "org.kde.dolphin",
+    "org.kde.konsole",
+    "org.mozilla.firefox",
+    "org.kde.kate"
+  ],
+
+  "position":    "bottom",
+  "iconSize":    52,
+  "padding":     8,
+  "spacing":     6,
+  "screenIndex": 0,
+
+  "background": {
+    "color":   "#1a1a2e",
+    "opacity": 0.85,
+    "radius":  14
+  },
+
+  "autohide":      false,
+  "magnify":       true,
+  "magnifyScale":  1.5,
+  "magnifyRadius": 120,
+
+  "runningIndicator": {
+    "visible": true,
+    "color":   "#ffffff",
+    "size":    4
+  }
+}

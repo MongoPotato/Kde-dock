@@ -1,0 +1,14 @@
+# data/kdock.desktop
+# Copied to ~/.config/autostart/ by install.sh as a fallback for
+# systems that do not use systemd for session management.
+# On systemd-managed sessions the service is preferred.
+
+[Desktop Entry]
+Type=Application
+Name=KDock
+Comment=Application dock for KDE Plasma 6
+Exec=%h/.local/bin/kdock
+Icon=kdock
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
