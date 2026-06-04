@@ -11,7 +11,7 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/.local" CACHE PATH "Install prefix" FORCE)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui GuiPrivate Quick WaylandClient DBus)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick WaylandClient DBus)
 
 # KF6 WindowSystem is optional — TaskTracker falls back to pure DBus
 find_package(ECM QUIET NO_MODULE)

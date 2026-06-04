@@ -204,6 +204,72 @@ private slots:
         ConfigWatcher cw2;
         QCOMPARE(cw2.pinnedApps(), before);
     }
+
+    // Verify that reload() emits configChanged()
+    void test_reload_emitsConfigChanged()
+    {
+        ConfigWatcher cw;
+        QSignalSpy spy(&cw, &ConfigWatcher::configChanged);
+        cw.reload();
+        QCOMPARE(spy.count(), 1);
+    }
+
+    // Verify that setIconSize() emits configChanged() once for a new value
+    void test_setIconSize_emitsConfigChanged()
+    {
+        ConfigWatcher cw;
+        QSignalSpy spy(&cw, &ConfigWatcher::configChanged);
+        const int newSize = (cw.iconSize() == cw.scrollMinSize() + 4)
+                            ? cw.scrollMinSize() + 8
+                            : cw.scrollMinSize() + 4;
+        cw.setIconSize(newSize);
+        QCOMPARE(spy.count(), 1);
+    }
+
+    // Verify that setIconSize() does NOT emit configChanged() when the value is unchanged
+    void test_setIconSize_noSignalWhenUnchanged()
+    {
+        ConfigWatcher cw;
+        QSignalSpy spy(&cw, &ConfigWatcher::configChanged);
+        cw.setIconSize(cw.iconSize());
+        QCOMPARE(spy.count(), 0);
+    }
+
+    // Verify that default background values are internally consistent and valid
+    void test_backgroundDefaults_areValid()
+    {
+        ConfigWatcher cw;
+        QVERIFY(cw.backgroundOpacity() > 0.0);
+        QVERIFY(cw.backgroundOpacity() <= 1.0);
+        QVERIFY(!cw.backgroundColor().isEmpty());
+        QVERIFY(cw.backgroundRadius() >= 0);
+    }
+
+    // Verify that scroll bounds are ordered: minSize < maxSize
+    void test_scrollBounds_areOrdered()
+    {
+        ConfigWatcher cw;
+        QVERIFY(cw.scrollMinSize() < cw.scrollMaxSize());
+    }
+
+    // Verify that padding and spacing defaults are non-negative
+    void test_paddingAndSpacing_areNonNegative()
+    {
+        ConfigWatcher cw;
+        QVERIFY(cw.padding() >= 0);
+        QVERIFY(cw.spacing() >= 0);
+    }
+
+    // Verify that setAutohide() persists the value across a save+reload cycle
+    void test_setAutohide_persistsAcrossReload()
+    {
+        ConfigWatcher cw;
+        cw.setAutohide(true);
+        cw.save();
+
+        ConfigWatcher cw2;
+        QCOMPARE(cw2.autohide(), true);
+    }
 };
 
 QTEST_MAIN(TestConfigWatcher)

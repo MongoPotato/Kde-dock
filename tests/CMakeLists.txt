@@ -59,3 +59,10 @@ kdock_test(tst_TaskTracker
     ${CMAKE_SOURCE_DIR}/src/TaskTracker.cpp
     helpers/FakeKWinDBus.cpp
 )
+
+kdock_test(tst_SettingsController
+    tst_SettingsController.cpp
+    ${CMAKE_SOURCE_DIR}/src/SettingsController.cpp
+    ${CMAKE_SOURCE_DIR}/src/ConfigWatcher.cpp
+    ${CMAKE_SOURCE_DIR}/src/IconThemeDetector.cpp
+)

@@ -184,6 +184,89 @@ private slots:
         QAbstractItemModelTester tester(&model, QAbstractItemModelTester::FailureReportingMode::Fatal);
         Q_UNUSED(tester)
     }
+
+    // Verify that isAppRunning() returns correct values for running and non-running apps
+    void test_isAppRunning_helper()
+    {
+        writeConfig({QStringLiteral("app.a"), QStringLiteral("app.b")});
+        ConfigWatcher cw;
+        DockModel model(&cw);
+
+        model.onRunningAppsChanged({QStringLiteral("app.a")});
+
+        QCOMPARE(model.isAppRunning(QStringLiteral("app.a")), true);
+        QCOMPARE(model.isAppRunning(QStringLiteral("app.b")), false);
+        QCOMPARE(model.isAppRunning(QStringLiteral("app.nonexistent")), false);
+    }
+
+    // Verify that isAppPinned() distinguishes pinned apps from running-only apps
+    void test_isAppPinned_helper()
+    {
+        writeConfig({QStringLiteral("app.pinned")});
+        ConfigWatcher cw;
+        DockModel model(&cw);
+
+        model.onRunningAppsChanged({QStringLiteral("app.pinned"),
+                                    QStringLiteral("app.running.only")});
+
+        QCOMPARE(model.isAppPinned(QStringLiteral("app.pinned")),      true);
+        QCOMPARE(model.isAppPinned(QStringLiteral("app.running.only")), false);
+    }
+
+    // Verify that windowCountForApp() returns the correct count and 0 for unknown apps
+    void test_windowCountForApp_helper()
+    {
+        writeConfig({QStringLiteral("app.a")});
+        ConfigWatcher cw;
+        DockModel model(&cw);
+
+        model.onRunningAppsChanged({QStringLiteral("app.a")});
+        model.onWindowCountChanged(QStringLiteral("app.a"), 5);
+
+        QCOMPARE(model.windowCountForApp(QStringLiteral("app.a")),           5);
+        QCOMPARE(model.windowCountForApp(QStringLiteral("app.nonexistent")), 0);
+    }
+
+    // Verify that displayNameForApp() falls back to the appId when no .desktop file exists
+    void test_displayNameForApp_fallback()
+    {
+        writeConfig({});
+        ConfigWatcher cw;
+        DockModel model(&cw);
+
+        model.onRunningAppsChanged({QStringLiteral("com.example.nododesktop")});
+
+        QCOMPARE(model.displayNameForApp(QStringLiteral("com.example.nododesktop")),
+                 QStringLiteral("com.example.nododesktop"));
+    }
+
+    // Verify that pinApp() is a no-op when the app is already pinned
+    void test_pinApp_idempotent()
+    {
+        writeConfig({QStringLiteral("app.already")});
+        ConfigWatcher cw;
+        DockModel model(&cw);
+
+        const int countBefore = model.rowCount();
+        model.pinApp(QStringLiteral("app.already"));
+        QCOMPARE(model.rowCount(), countBefore);
+    }
+
+    // Verify that when a running-only app is pinned it moves to the pinned section
+    // (i.e. it's still in the model and its IsPinned role flips to true)
+    void test_pinApp_promotesRunningApp()
+    {
+        writeConfig({});
+        ConfigWatcher cw;
+        DockModel model(&cw);
+
+        model.onRunningAppsChanged({QStringLiteral("app.promote")});
+        QCOMPARE(model.isAppPinned(QStringLiteral("app.promote")), false);
+
+        model.pinApp(QStringLiteral("app.promote"));
+        QCOMPARE(model.isAppPinned(QStringLiteral("app.promote")), true);
+        QCOMPARE(model.rowCount(), 1);
+    }
 };
 
 QTEST_MAIN(TestDockModel)
