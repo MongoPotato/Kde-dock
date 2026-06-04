@@ -69,8 +69,11 @@ LayerShellWindow::LayerShellWindow()
     // BypassWindowManagerHint prevents Qt's Wayland QPA from assigning
     // xdg-shell to this surface, leaving a bare wl_surface we can assign
     // the layer-shell role ourselves.
-    setFlags(Qt::BypassWindowManagerHint | Qt::FramelessWindowHint
-             | Qt::WindowDoesNotAcceptFocus);
+    // NOTE: Do NOT add Qt::WindowDoesNotAcceptFocus here. On Qt's Wayland QPA
+    // that flag causes the wl_surface input region to be set to empty, which
+    // blocks ALL pointer events — not just keyboard focus. Keyboard exclusivity
+    // is handled via zwlr_layer_surface_v1_set_keyboard_interactivity(NONE).
+    setFlags(Qt::BypassWindowManagerHint | Qt::FramelessWindowHint);
     setColor(Qt::transparent);
     setResizeMode(QQuickView::SizeRootObjectToView);
 
@@ -164,7 +167,18 @@ void LayerShellWindow::setupWaylandLayerSurface()
     const uint32_t h = horizontal ? static_cast<uint32_t>(m_thickness) : 0;
     zwlr_layer_surface_v1_set_size(m_layerSurface, w, h);
 
+    // Prevent the dock from stealing keyboard focus. Pointer events are
+    // unaffected — they're controlled by the wl_surface input region, not this.
+    zwlr_layer_surface_v1_set_keyboard_interactivity(
+        m_layerSurface,
+        ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE);
+
     zwlr_layer_surface_v1_add_listener(m_layerSurface, &s_layerSurfaceListener, this);
+
+    // Passing NULL to set_input_region resets to "whole surface accepts input".
+    // This undoes any empty region that Qt may have set due to window flags,
+    // ensuring pointer events are delivered even without keyboard focus.
+    wl_surface_set_input_region(surface, nullptr);
 
     wl_surface_commit(surface);
 
@@ -182,7 +196,7 @@ void LayerShellWindow::applyX11Geometry()
     if (!scr) return;
 
     setFlags(Qt::BypassWindowManagerHint | Qt::FramelessWindowHint
-             | Qt::WindowStaysOnTopHint | Qt::WindowDoesNotAcceptFocus);
+             | Qt::WindowStaysOnTopHint);
 
     const QRect geom = scr->availableGeometry();
 

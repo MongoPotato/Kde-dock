@@ -8,6 +8,7 @@
 //   parentItem    → the DockItem that owns this tooltip
 
 import QtQuick 2.15
+import QtQuick.Window 2.15
 
 Item {
     id: root
@@ -19,7 +20,8 @@ Item {
     // Offset between tooltip edge and icon edge
     readonly property int gap: 8
 
-    // Tooltip is parented to the window root so it can escape the icon bounds
+    // Re-parent to the QQuickView's content item so the tooltip can render
+    // outside the DockItem's own bounds without being clipped.
     parent: root.parentItem ? root.parentItem.Window.contentItem : null
 
     visible: false

@@ -48,10 +48,10 @@ Item {
         return 1.0 + extra * Math.max(0, 1 - dist / config.magnifyRadius)
     }
 
-    implicitWidth:  isHorizontal ? itemRow.implicitWidth  + config.padding * 2
-                                 : config.iconSize        + config.padding * 2
-    implicitHeight: isHorizontal ? config.iconSize        + config.padding * 2
-                                 : itemRow.implicitHeight + config.padding * 2
+    implicitWidth:  isHorizontal ? itemRow.implicitWidth    + config.padding * 2
+                                 : config.iconSize          + config.padding * 2
+    implicitHeight: isHorizontal ? config.iconSize          + config.padding * 2
+                                 : itemColumn.implicitHeight + config.padding * 2
 
     // ── Background ───────────────────────────────────────────────────────
     Rectangle {
@@ -112,16 +112,41 @@ Item {
         }
     }
 
-    // ── Icon layout — Row for horizontal, Column for vertical docks ──────
-    Grid {
+    // ── Icon layout ───────────────────────────────────────────────────────
+    // Row/Column are used directly so there is no ambiguity about how many
+    // items fit per line (Grid's column/row 0 semantics vary across Qt versions).
+    Row {
         id: itemRow
         anchors.centerIn: parent
-        columns: isHorizontal ? -1 : 1
-        rows:    isHorizontal ? 1 : -1
+        visible: isHorizontal
         spacing: config.spacing
 
         Repeater {
-            model: dockModel
+            model: isHorizontal ? dockModel : null
+
+            DockItem {
+                required property string appId
+                required property string displayName
+                required property string iconName
+                required property bool isPinned
+                required property bool isRunning
+                required property int  windowCount
+                required property bool isUrgent
+
+                dockBar:  root
+                position: root.position
+            }
+        }
+    }
+
+    Column {
+        id: itemColumn
+        anchors.centerIn: parent
+        visible: !isHorizontal
+        spacing: config.spacing
+
+        Repeater {
+            model: isHorizontal ? null : dockModel
 
             DockItem {
                 required property string appId
