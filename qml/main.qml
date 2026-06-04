@@ -1,71 +1,63 @@
-// main.qml is the QML entry point loaded by QQmlApplicationEngine.
-// It acts purely as a wiring layer between the C++ context properties
-// and the visual DockBar component.
+// main.qml — root QML loaded by LayerShellWindow (QQuickView).
+// The root must be Item, not Window: LayerShellWindow IS the window.
+// Width and height are managed by the layer-shell configure callback
+// (or X11 fallback setGeometry); QQuickView::SizeRootObjectToView keeps
+// this Item in sync with the window automatically.
 //
 // Context properties available:
-//   config              → ConfigWatcher*       (position, iconSize, autohide, ...)
-//   settings            → SettingsController*  (validated mutators)
+//   config              → ConfigWatcher*       (position, iconSize, autohide, …)
+//   settings            → SettingsController*  (validated mutators + signals)
 //   dockModel           → DockModel*           (list of dock entries)
 //   taskTracker         → TaskTracker*         (running window state)
 //   iconThemeDetector   → IconThemeDetector*   (KDE theme name)
 
 import QtQuick 2.15
-import QtQuick.Window 2.15
+import QtQuick.Controls 2.15
 
-Window {
+Item {
     id: root
 
-    color: "transparent"
-    flags: Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus
+    // When autohide is off the dock is always visible.
+    // When autohide is on it starts hidden and reveals on hover.
+    property bool dockVisible: !config.autohide
 
-    readonly property bool isHorizontal: config.position === "bottom"
-                                      || config.position === "top"
-
-    width:  isHorizontal ? Screen.width  : config.iconSize + config.padding * 2
-    height: isHorizontal ? config.iconSize + config.padding * 2 : Screen.height
-
-    visible: true
-
-    // Auto-hide: reveal when mouse enters, hide when it leaves
-    property bool dockHidden: config.autohide
-
+    // ── Hover detection for auto-hide ────────────────────────────────────
     MouseArea {
         anchors.fill: parent
         hoverEnabled: true
         propagateComposedEvents: true
-        onEntered: if (config.autohide) root.dockHidden = false
-        onExited:  if (config.autohide) root.dockHidden = true
+        onEntered: if (config.autohide) root.dockVisible = true
+        onExited:  if (config.autohide) root.dockVisible = false
     }
 
+    // ── Dock surface ─────────────────────────────────────────────────────
     DockBar {
         id: dockBar
-        anchors.centerIn: parent
+        anchors.fill: parent
         position: config.position
-
-        property int hiddenOffset: {
-            switch (config.position) {
-            case "bottom": return root.height
-            case "top":    return -root.height
-            case "left":   return -root.width
-            case "right":  return root.width
-            default:       return root.height
-            }
-        }
 
         transform: Translate {
             x: (config.position === "left" || config.position === "right")
-               ? (root.dockHidden ? dockBar.hiddenOffset : 0) : 0
+               ? (root.dockVisible ? 0
+                                   : (config.position === "left" ? -root.width : root.width))
+               : 0
             y: (config.position === "bottom" || config.position === "top")
-               ? (root.dockHidden ? dockBar.hiddenOffset : 0) : 0
+               ? (root.dockVisible ? 0
+                                   : (config.position === "bottom" ? root.height : -root.height))
+               : 0
 
             Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
             Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
         }
     }
 
-    // Settings panel — loaded on demand and shared between ContextMenu instances
+    // ── Settings panel — opened via SettingsController signal ────────────
     SettingsPanel {
         id: settingsPanel
-        parent: root.contentItem
+    }
+
+    Connections {
+        target: settings
+        function onOpenSettingsRequested() { settingsPanel.open() }
     }
 }

@@ -346,6 +346,12 @@ void ConfigWatcher::save()
     f.commit();
 }
 
+void ConfigWatcher::reload()
+{
+    load();
+    emit configChanged();
+}
+
 void ConfigWatcher::resetToDefaults()
 {
     m_config = QJsonObject{

@@ -73,3 +73,8 @@ void SettingsController::resetDefaults()
 {
     m_config->resetToDefaults();
 }
+
+void SettingsController::requestOpenSettings()
+{
+    emit openSettingsRequested();
+}

@@ -74,7 +74,7 @@ Menu {
     MenuItem {
         visible: root.mode === "dock"
         text: "Reload config"
-        onTriggered: config.load()
+        onTriggered: config.reload()
     }
 
     MenuSeparator { visible: root.mode === "dock" }
@@ -82,6 +82,6 @@ Menu {
     // ── Always shown at bottom ────────────────────────────────────────────
     MenuItem {
         text: "Dock settings…"
-        onTriggered: settingsPanel.open()
+        onTriggered: settings.requestOpenSettings()
     }
 }

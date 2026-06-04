@@ -114,6 +114,7 @@ public:
 
     Q_INVOKABLE void setPinnedApps(const QStringList &apps);
     Q_INVOKABLE void save();
+    Q_INVOKABLE void reload();
     Q_INVOKABLE void resetToDefaults();
 
     QString configPath() const;

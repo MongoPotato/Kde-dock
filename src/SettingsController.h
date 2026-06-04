@@ -32,9 +32,11 @@ public:
     Q_INVOKABLE void applyIconBgShape(const QString &shape);
     Q_INVOKABLE void applyIconBgOpacity(double v);
     Q_INVOKABLE void resetDefaults();
+    Q_INVOKABLE void requestOpenSettings();
 
 signals:
     void iconThemeChanged();
+    void openSettingsRequested();
 
 private:
     ConfigWatcher *m_config;

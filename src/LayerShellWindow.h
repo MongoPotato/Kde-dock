@@ -1,59 +1,53 @@
 #pragma once
 
 // LayerShellWindow wraps the Wayland layer-shell protocol.
-// On X11 / XWayland this falls back to a frameless always-on-top window
-// at the requested edge using setWindowFlags and QScreen geometry.
-// The fallback is detected at runtime: if wl_display is null we are on X11.
+//
+// Extends QQuickView so QML is loaded directly via setSource() and
+// context properties are set via rootContext(). This ensures Qt's
+// rendering pipeline uses OUR window, not one created internally by
+// QQmlApplicationEngine.
+//
+// Key design:
+//   Qt::BypassWindowManagerHint prevents Qt's Wayland QPA from applying
+//   the xdg-shell protocol to the window. The window is created as a bare
+//   wl_surface, which we then assign the wlr-layer-shell role.
+//   On X11/XWayland the flag creates an override-redirect window that we
+//   position at the screen edge manually.
 
-#include <QQuickWindow>
+#include <QQuickView>
 #include <QString>
 
-struct wl_surface;
-struct wl_display;
 struct zwlr_layer_shell_v1;
 struct zwlr_layer_surface_v1;
 
-class LayerShellWindow : public QQuickWindow {
+class LayerShellWindow : public QQuickView {
     Q_OBJECT
 
-    Q_PROPERTY(QString anchor READ anchor WRITE setAnchor NOTIFY anchorChanged)
-    Q_PROPERTY(int thickness READ thickness WRITE setThickness NOTIFY geometrySettingsChanged)
-    Q_PROPERTY(int length READ length WRITE setLength NOTIFY geometrySettingsChanged)
-
 public:
-    explicit LayerShellWindow(QWindow *parent = nullptr);
-    ~LayerShellWindow();
+    explicit LayerShellWindow();
+    ~LayerShellWindow() override;
 
-    QString anchor() const;
     void setAnchor(const QString &anchor);
+    QString anchor() const { return m_anchor; }
 
-    int thickness() const;
     void setThickness(int px);
+    int thickness() const { return m_thickness; }
 
-    int length() const;
-    void setLength(int px);
-
-    void applyLayerShell();
-
-    // Public so that C-style Wayland registry callbacks can set it
+    // Public so the C-style Wayland registry callback can write to it
     zwlr_layer_shell_v1 *m_layerShell = nullptr;
 
-signals:
-    void anchorChanged();
-    void geometrySettingsChanged();
-
 protected:
-    void exposeEvent(QExposeEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 
 private:
-    void applyX11Fallback();
+    void detectWayland();
     void setupWaylandLayerSurface();
+    void applyX11Geometry();
 
-    QString m_anchor{QStringLiteral("bottom")};
+    QString m_anchor { QStringLiteral("bottom") };
     int m_thickness = 72;
-    int m_length = 0;
-    bool m_layerShellApplied = false;
     bool m_isWayland = false;
+    bool m_shellApplied = false;
 
     zwlr_layer_surface_v1 *m_layerSurface = nullptr;
 };
