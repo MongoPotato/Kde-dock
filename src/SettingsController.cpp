@@ -78,3 +78,8 @@ void SettingsController::requestOpenSettings()
 {
     emit openSettingsRequested();
 }
+
+void SettingsController::requestManageApps()
+{
+    emit manageAppsRequested();
+}

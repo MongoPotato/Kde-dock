@@ -33,6 +33,8 @@ public:
     void setThickness(int px);
     int thickness() const { return m_thickness; }
 
+    void setBlurEnabled(bool enabled);
+
     // Public so the C-style Wayland registry callback can write to it
     zwlr_layer_shell_v1 *m_layerShell = nullptr;
 
@@ -48,6 +50,7 @@ private:
     int m_thickness = 72;
     bool m_isWayland = false;
     bool m_shellApplied = false;
+    bool m_blurEnabled = false;
 
     zwlr_layer_surface_v1 *m_layerSurface = nullptr;
 };

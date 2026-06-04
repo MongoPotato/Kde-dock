@@ -63,6 +63,13 @@ TaskTracker::TaskTracker(QObject *parent)
         QStringLiteral("windowRemoved"),
         this, SLOT(onWindowRemoved(quint64)));
 
+    QDBusConnection::sessionBus().connect(
+        QStringLiteral("org.kde.KWin"),
+        QStringLiteral("/KWin"),
+        QStringLiteral("org.kde.KWin"),
+        QStringLiteral("windowActivated"),
+        this, SLOT(onWindowActivated(quint64)));
+
     // Polling fallback for KWin versions without signals
     m_pollTimer.setInterval(kPollIntervalMs);
     connect(&m_pollTimer, &QTimer::timeout, this, &TaskTracker::poll);
@@ -88,6 +95,20 @@ void TaskTracker::onWindowRemoved(quint64 /*id*/)
     refresh();
 }
 
+void TaskTracker::onWindowActivated(quint64 id)
+{
+    const QString appId = m_windowAppIds.value(id);
+    if (appId != m_activeAppId) {
+        m_activeAppId = appId;
+        emit activeAppChanged(m_activeAppId);
+    }
+}
+
+QString TaskTracker::activeAppId() const
+{
+    return m_activeAppId;
+}
+
 void TaskTracker::refresh()
 {
     if (!m_kwin->isValid())
@@ -98,6 +119,7 @@ void TaskTracker::refresh()
 
     QMap<QString, int> newCounts;
     QMap<quint64, QString> newWindowAppIds;
+    QSet<QString> newUrgent;
 
     if (reply.isValid()) {
         for (const QVariant &v : reply.value()) {
@@ -108,13 +130,18 @@ void TaskTracker::refresh()
                 newWindowAppIds[wid] = appId;
                 newCounts[appId]++;
 
-                // Check urgent/demands-attention hint
-                if (info.value(QStringLiteral("demandsAttention")).toBool()) {
-                    emit windowUrgent(appId);
-                }
+                if (info.value(QStringLiteral("demandsAttention")).toBool())
+                    newUrgent.insert(appId);
             }
         }
     }
+
+    // Emit urgent / not-urgent transitions
+    for (const QString &id : newUrgent)
+        if (!m_urgentApps.contains(id)) emit windowUrgent(id);
+    for (const QString &id : std::as_const(m_urgentApps))
+        if (!newUrgent.contains(id)) emit windowNotUrgent(id);
+    m_urgentApps = newUrgent;
 
     m_windowAppIds = newWindowAppIds;
 

@@ -8,9 +8,12 @@
 #include "IconThemeDetector.h"
 #include "TaskTracker.h"
 
+#include <QColor>
 #include <QDesktopServices>
 #include <QDir>
 #include <QIcon>
+#include <QImage>
+#include <QPixmap>
 #include <QProcess>
 #include <QSettings>
 #include <QStandardPaths>
@@ -43,9 +46,10 @@ DockModel::DockModel(ConfigWatcher *config, QObject *parent)
 void DockModel::setTaskTracker(TaskTracker *tracker)
 {
     m_tracker = tracker;
-    connect(tracker, &TaskTracker::runningAppsChanged, this, &DockModel::onRunningAppsChanged);
-    connect(tracker, &TaskTracker::windowUrgent, this, &DockModel::onWindowUrgent);
-    connect(tracker, &TaskTracker::windowCountChanged, this, &DockModel::onWindowCountChanged);
+    connect(tracker, &TaskTracker::runningAppsChanged,  this, &DockModel::onRunningAppsChanged);
+    connect(tracker, &TaskTracker::windowUrgent,        this, &DockModel::onWindowUrgent);
+    connect(tracker, &TaskTracker::windowNotUrgent,     this, &DockModel::onWindowNotUrgent);
+    connect(tracker, &TaskTracker::windowCountChanged,  this, &DockModel::onWindowCountChanged);
 }
 
 void DockModel::setIconThemeDetector(IconThemeDetector *detector)
@@ -223,6 +227,65 @@ QString DockModel::displayNameForApp(const QString &appId) const
     return idx >= 0 ? m_entries.at(idx).displayName : appId;
 }
 
+QString DockModel::iconNameForApp(const QString &appId) const
+{
+    const int idx = indexOf(appId);
+    return idx >= 0 ? m_entries.at(idx).iconName : appId;
+}
+
+QColor DockModel::iconDominantColor(const QString &iconName) const
+{
+    static QMap<QString, QColor> cache;
+    if (cache.contains(iconName))
+        return cache.value(iconName);
+
+    const QIcon icon = QIcon::fromTheme(iconName);
+    if (icon.isNull()) {
+        cache[iconName] = QColor(60, 70, 100);
+        return cache[iconName];
+    }
+
+    const QImage img = icon.pixmap(QSize(32, 32)).toImage();
+    int r = 0, g = 0, b = 0, count = 0;
+    for (int y = 0; y < img.height(); y += 2) {
+        for (int x = 0; x < img.width(); x += 2) {
+            const QColor c = QColor::fromRgba(img.pixel(x, y));
+            if (c.alpha() > 100) {
+                r += c.red(); g += c.green(); b += c.blue(); ++count;
+            }
+        }
+    }
+    const QColor result = (count > 0) ? QColor(r/count, g/count, b/count)
+                                      : QColor(60, 70, 100);
+    cache[iconName] = result;
+    return result;
+}
+
+void DockModel::moveApp(int fromIndex, int toIndex)
+{
+    if (fromIndex == toIndex) return;
+
+    QStringList pinned = m_config->pinnedApps();
+    if (fromIndex < 0 || fromIndex >= pinned.size()) return;
+    if (toIndex   < 0 || toIndex   >= pinned.size()) return;
+
+    pinned.move(fromIndex, toIndex);
+    m_config->setPinnedApps(pinned);
+    m_config->save();
+    rebuild();
+}
+
+void DockModel::clearUrgency(const QString &appId)
+{
+    m_urgentApps.remove(appId);
+    const int idx = indexOf(appId);
+    if (idx >= 0 && m_entries.at(idx).urgent) {
+        m_entries[idx].urgent = false;
+        const QModelIndex mi = index(idx);
+        emit dataChanged(mi, mi, {IsUrgentRole});
+    }
+}
+
 void DockModel::onConfigChanged()
 {
     rebuild();
@@ -243,6 +306,11 @@ void DockModel::onWindowUrgent(const QString &appId)
         const QModelIndex mi = index(idx);
         emit dataChanged(mi, mi, {IsUrgentRole});
     }
+}
+
+void DockModel::onWindowNotUrgent(const QString &appId)
+{
+    clearUrgency(appId);
 }
 
 void DockModel::onWindowCountChanged(const QString &appId, int count)

@@ -33,10 +33,12 @@ public:
     Q_INVOKABLE void applyIconBgOpacity(double v);
     Q_INVOKABLE void resetDefaults();
     Q_INVOKABLE void requestOpenSettings();
+    Q_INVOKABLE void requestManageApps();
 
 signals:
     void iconThemeChanged();
     void openSettingsRequested();
+    void manageAppsRequested();
 
 private:
     ConfigWatcher *m_config;

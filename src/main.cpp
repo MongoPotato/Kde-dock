@@ -11,6 +11,7 @@
 //   settings            → SettingsController*   validated settings mutations
 //   iconThemeDetector   → IconThemeDetector*    KDE theme auto-detection
 
+#include "AppLibrary.h"
 #include "ConfigWatcher.h"
 #include "DockModel.h"
 #include "IconProvider.h"
@@ -43,6 +44,8 @@ int main(int argc, char *argv[])
     dockModel.setTaskTracker(&taskTracker);
     dockModel.setIconThemeDetector(&iconThemeDetector);
 
+    AppLibrary appLibrary;
+
     SettingsController settingsController(&config, &iconThemeDetector);
 
     LayerShellWindow window;
@@ -61,6 +64,11 @@ int main(int argc, char *argv[])
                       horizontal ? thickness : geom.height());
     }
 
+    // Enable blur behind if configured
+    window.setBlurEnabled(config.blurEnabled());
+    QObject::connect(&config, &ConfigWatcher::configChanged, &window,
+                     [&]{ window.setBlurEnabled(config.blurEnabled()); });
+
     // Register custom image provider so QML can use "image://kdock/<appId>"
     window.engine()->addImageProvider(QStringLiteral("kdock"), new IconProvider());
 
@@ -71,6 +79,7 @@ int main(int argc, char *argv[])
     ctx->setContextProperty(QStringLiteral("config"),            &config);
     ctx->setContextProperty(QStringLiteral("settings"),          &settingsController);
     ctx->setContextProperty(QStringLiteral("iconThemeDetector"), &iconThemeDetector);
+    ctx->setContextProperty(QStringLiteral("appLibrary"),        &appLibrary);
 
     // Resolve QML — search in order: installed path, next to exe, CWD
     const QString exeDir = QCoreApplication::applicationDirPath();

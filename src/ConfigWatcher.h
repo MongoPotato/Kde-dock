@@ -103,6 +103,13 @@ public:
 
     QStringList pinnedApps() const;
 
+    // ── Visual extras ─────────────────────────────────────────────────────
+    Q_PROPERTY(bool blurEnabled READ blurEnabled NOTIFY configChanged)
+    Q_PROPERTY(bool adaptiveColor READ adaptiveColor NOTIFY configChanged)
+
+    bool blurEnabled() const;
+    bool adaptiveColor() const;
+
     // ── Mutators (called by SettingsController / QML) ─────────────────────
     Q_INVOKABLE void setIconSize(int px);
     Q_INVOKABLE void setMagnifyScale(double s);
@@ -111,6 +118,9 @@ public:
     Q_INVOKABLE void setAutohide(bool on);
     Q_INVOKABLE void setIconBgShape(const QString &shape);
     Q_INVOKABLE void setIconBgOpacity(double v);
+    Q_INVOKABLE void setBlurEnabled(bool on);
+    Q_INVOKABLE void setAdaptiveColor(bool on);
+    Q_INVOKABLE void setPosition(const QString &pos);
 
     Q_INVOKABLE void setPinnedApps(const QStringList &apps);
     Q_INVOKABLE void save();
@@ -119,8 +129,17 @@ public:
 
     QString configPath() const;
 
+    // ── Preset management ─────────────────────────────────────────────────
+    Q_PROPERTY(QString activePreset READ activePreset NOTIFY presetChanged)
+    Q_INVOKABLE QStringList presetNames() const;
+    Q_INVOKABLE bool savePreset(const QString &name);
+    Q_INVOKABLE bool loadPreset(const QString &name);
+    Q_INVOKABLE bool deletePreset(const QString &name);
+    QString activePreset() const;
+
 signals:
     void configChanged();
+    void presetChanged();
 
 private slots:
     void onFileChanged(const QString &path);
@@ -132,7 +151,10 @@ private:
     template<typename T>
     void writeNestedValue(const QString &section, const QString &key, const T &value);
 
+    QString presetsDir() const;
+
     QFileSystemWatcher m_watcher;
     QJsonObject m_config;
     QString m_configPath;
+    QString m_activePreset = QStringLiteral("Default");
 };

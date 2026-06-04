@@ -6,6 +6,7 @@
 // pinned apps appended at the end (like macOS Dock behaviour).
 
 #include <QAbstractListModel>
+#include <QColor>
 #include <QStringList>
 
 class ConfigWatcher;
@@ -38,20 +39,25 @@ public:
 
     Q_INVOKABLE void pinApp(const QString &appId);
     Q_INVOKABLE void unpinApp(const QString &appId);
+    Q_INVOKABLE void moveApp(int fromIndex, int toIndex);
     Q_INVOKABLE void launchApp(const QString &appId);
     Q_INVOKABLE void closeApp(const QString &appId);
     Q_INVOKABLE void addAppDialog();
+    Q_INVOKABLE void clearUrgency(const QString &appId);
 
-    // Query helpers used by ContextMenu.qml
+    // Query helpers used by ContextMenu.qml and AppPickerPanel
     Q_INVOKABLE bool    isAppRunning(const QString &appId) const;
     Q_INVOKABLE bool    isAppPinned(const QString &appId) const;
     Q_INVOKABLE int     windowCountForApp(const QString &appId) const;
     Q_INVOKABLE QString displayNameForApp(const QString &appId) const;
+    Q_INVOKABLE QString iconNameForApp(const QString &appId) const;
+    Q_INVOKABLE QColor  iconDominantColor(const QString &iconName) const;
 
 public slots:
     void onConfigChanged();
     void onRunningAppsChanged(const QStringList &appIds);
     void onWindowUrgent(const QString &appId);
+    void onWindowNotUrgent(const QString &appId);
     void onWindowCountChanged(const QString &appId, int count);
     void refreshAllIcons();
 

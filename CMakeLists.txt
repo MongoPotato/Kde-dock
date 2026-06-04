@@ -35,6 +35,7 @@ set(SOURCES
     src/IconProvider.cpp
     src/IconThemeDetector.cpp
     src/SettingsController.cpp
+    src/AppLibrary.cpp
 )
 
 add_executable(kdock ${SOURCES})

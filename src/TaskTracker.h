@@ -8,6 +8,7 @@
 
 #include <QMap>
 #include <QObject>
+#include <QSet>
 #include <QStringList>
 #include <QTimer>
 
@@ -21,17 +22,23 @@ public:
     ~TaskTracker();
 
     QStringList runningApps() const;
+    QString activeAppId() const;
     Q_INVOKABLE void closeWindows(const QString &appId);
+
+    Q_PROPERTY(QString activeAppId READ activeAppId NOTIFY activeAppChanged)
 
 signals:
     void runningAppsChanged(const QStringList &appIds);
     void windowUrgent(const QString &appId);
+    void windowNotUrgent(const QString &appId);
     void windowCountChanged(const QString &appId, int count);
+    void activeAppChanged(const QString &appId);
 
 private slots:
     void poll();
     void onWindowAdded(quint64 id);
     void onWindowRemoved(quint64 id);
+    void onWindowActivated(quint64 id);
 
 private:
     QString windowToAppId(const QVariantMap &info) const;
@@ -42,4 +49,6 @@ private:
     QMap<quint64, QString> m_windowAppIds;  // windowId → appId
     QMap<QString, int> m_windowCounts;      // appId → count
     QStringList m_runningApps;
+    QSet<QString> m_urgentApps;
+    QString m_activeAppId;
 };

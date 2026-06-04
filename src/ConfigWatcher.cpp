@@ -409,3 +409,117 @@ QString ConfigWatcher::configPath() const
 {
     return m_configPath;
 }
+
+// ── Visual extras ──────────────────────────────────────────────────────────
+
+bool ConfigWatcher::blurEnabled() const
+{
+    return m_config.value(QStringLiteral("blurEnabled")).toBool(false);
+}
+
+bool ConfigWatcher::adaptiveColor() const
+{
+    return m_config.value(QStringLiteral("adaptiveColor")).toBool(false);
+}
+
+void ConfigWatcher::setBlurEnabled(bool on)
+{
+    m_config[QStringLiteral("blurEnabled")] = on;
+    emit configChanged();
+    save();
+}
+
+void ConfigWatcher::setAdaptiveColor(bool on)
+{
+    m_config[QStringLiteral("adaptiveColor")] = on;
+    emit configChanged();
+    save();
+}
+
+void ConfigWatcher::setPosition(const QString &pos)
+{
+    m_config[QStringLiteral("position")] = pos;
+    emit configChanged();
+    save();
+}
+
+// ── Preset management ──────────────────────────────────────────────────────
+
+QString ConfigWatcher::presetsDir() const
+{
+    const QString configDir = QStandardPaths::writableLocation(
+        QStandardPaths::AppConfigLocation);
+    return configDir + QStringLiteral("/presets");
+}
+
+QStringList ConfigWatcher::presetNames() const
+{
+    const QDir dir(presetsDir());
+    QStringList names;
+    for (const QString &fn : dir.entryList({QStringLiteral("*.json")}, QDir::Files)) {
+        names << fn.chopped(5);  // strip ".json"
+    }
+    names.sort(Qt::CaseInsensitive);
+    return names;
+}
+
+bool ConfigWatcher::savePreset(const QString &name)
+{
+    if (name.trimmed().isEmpty()) return false;
+    QDir().mkpath(presetsDir());
+
+    // Store only the app list and position in a preset
+    QJsonObject preset;
+    preset[QStringLiteral("pinned")]   = m_config.value(QStringLiteral("pinned"));
+    preset[QStringLiteral("position")] = m_config.value(QStringLiteral("position"));
+
+    QSaveFile f(presetsDir() + QChar('/') + name + QStringLiteral(".json"));
+    if (!f.open(QIODevice::WriteOnly)) return false;
+    f.write(QJsonDocument(preset).toJson());
+    if (!f.commit()) return false;
+
+    if (m_activePreset != name) {
+        m_activePreset = name;
+        emit presetChanged();
+    }
+    return true;
+}
+
+bool ConfigWatcher::loadPreset(const QString &name)
+{
+    const QString path = presetsDir() + QChar('/') + name + QStringLiteral(".json");
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return false;
+
+    QJsonParseError err;
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &err);
+    if (err.error != QJsonParseError::NoError) return false;
+
+    const QJsonObject preset = doc.object();
+    if (preset.contains(QStringLiteral("pinned")))
+        m_config[QStringLiteral("pinned")] = preset.value(QStringLiteral("pinned"));
+    if (preset.contains(QStringLiteral("position")))
+        m_config[QStringLiteral("position")] = preset.value(QStringLiteral("position"));
+
+    m_activePreset = name;
+    emit presetChanged();
+    emit configChanged();
+    save();
+    return true;
+}
+
+bool ConfigWatcher::deletePreset(const QString &name)
+{
+    const QString path = presetsDir() + QChar('/') + name + QStringLiteral(".json");
+    const bool ok = QFile::remove(path);
+    if (ok && m_activePreset == name) {
+        m_activePreset = QStringLiteral("Default");
+        emit presetChanged();
+    }
+    return ok;
+}
+
+QString ConfigWatcher::activePreset() const
+{
+    return m_activePreset;
+}

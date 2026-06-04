@@ -183,6 +183,7 @@ Item {
         onClicked: (event) => {
             if (event.button === Qt.LeftButton) {
                 dockModel.launchApp(root.appId)
+                dockModel.clearUrgency(root.appId)
             } else {
                 contextMenu.mode  = "app"
                 contextMenu.appId = root.appId

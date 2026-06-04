@@ -1,15 +1,13 @@
 // main.qml — root QML loaded by LayerShellWindow (QQuickView).
-// The root must be Item, not Window: LayerShellWindow IS the window.
-// Width and height are managed by the layer-shell configure callback
-// (or X11 fallback setGeometry); QQuickView::SizeRootObjectToView keeps
-// this Item in sync with the window automatically.
+// The root must be Item, not Window: LayerShellWindow IS the dock window.
 //
-// Context properties available:
-//   config              → ConfigWatcher*       (position, iconSize, autohide, …)
-//   settings            → SettingsController*  (validated mutators + signals)
-//   dockModel           → DockModel*           (list of dock entries)
-//   taskTracker         → TaskTracker*         (running window state)
-//   iconThemeDetector   → IconThemeDetector*   (KDE theme name)
+// Context properties:
+//   config              → ConfigWatcher*
+//   settings            → SettingsController*
+//   dockModel           → DockModel*
+//   taskTracker         → TaskTracker*
+//   iconThemeDetector   → IconThemeDetector*
+//   appLibrary          → AppLibrary*
 
 import QtQuick 2.15
 import QtQuick.Controls 2.15
@@ -17,8 +15,6 @@ import QtQuick.Controls 2.15
 Item {
     id: root
 
-    // When autohide is off the dock is always visible.
-    // When autohide is on it starts hidden and reveals on hover.
     property bool dockVisible: !config.autohide
 
     // ── Hover detection for auto-hide ────────────────────────────────────
@@ -51,13 +47,21 @@ Item {
         }
     }
 
-    // ── Settings panel — opened via SettingsController signal ────────────
+    // ── App management window (separate OS window) ───────────────────────
+    AppPickerPanel {
+        id: appPickerPanel
+        visible: false
+    }
+
+    // ── Visual settings panel ────────────────────────────────────────────
     SettingsPanel {
         id: settingsPanel
     }
 
+    // ── Signal routing ───────────────────────────────────────────────────
     Connections {
         target: settings
-        function onOpenSettingsRequested() { settingsPanel.open() }
+        function onOpenSettingsRequested()  { settingsPanel.open() }
+        function onManageAppsRequested()    { appPickerPanel.visible = true; appPickerPanel.raise() }
     }
 }
