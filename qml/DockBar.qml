@@ -68,6 +68,7 @@ Item {
         id: barMouse
         anchors.fill: parent
         hoverEnabled: true
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
         propagateComposedEvents: true
 
         onPositionChanged: (mouse) => {
@@ -82,8 +83,10 @@ Item {
             if (event.button === Qt.RightButton) {
                 barContextMenu.mode = "dock"
                 barContextMenu.popup()
+                event.accepted = true
+            } else {
+                event.accepted = false
             }
-            event.accepted = false
         }
     }
 

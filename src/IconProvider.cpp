@@ -7,8 +7,10 @@
 #include "IconProvider.h"
 
 #include <QFile>
+#include <QFont>
 #include <QIcon>
 #include <QImage>
+#include <QPainter>
 #include <QPixmap>
 #include <QStandardPaths>
 
@@ -70,7 +72,24 @@ QImage IconProvider::requestImage(const QString &id, QSize *size, const QSize &r
         }
     }
 
-    // Ultimate fallback: transparent image
-    if (size) *size = target;
-    return QImage(target, QImage::Format_ARGB32);
+    // Ultimate fallback: colored rectangle with first letter of app ID
+    QImage img(target, QImage::Format_ARGB32);
+    img.fill(Qt::transparent);
+    {
+        QPainter p(&img);
+        p.setRenderHint(QPainter::Antialiasing);
+        const qreal r = qMin(target.width(), target.height()) * 0.15;
+        p.setBrush(QColor(60, 70, 100));
+        p.setPen(Qt::NoPen);
+        p.drawRoundedRect(img.rect(), r, r);
+        p.setPen(QColor(200, 210, 240));
+        QFont f;
+        f.setPixelSize(qMax(1, target.height() / 2));
+        f.setBold(true);
+        p.setFont(f);
+        const QChar letter = appId.isEmpty() ? QChar('?') : appId.at(0).toUpper();
+        p.drawText(img.rect(), Qt::AlignCenter, QString(letter));
+    }
+    if (size) *size = img.size();
+    return img;
 }

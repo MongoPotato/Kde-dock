@@ -19,6 +19,8 @@
 #include "SettingsController.h"
 #include "TaskTracker.h"
 
+#include <QCoreApplication>
+#include <QDir>
 #include <QFile>
 #include <QGuiApplication>
 #include <QQmlContext>
@@ -70,15 +72,35 @@ int main(int argc, char *argv[])
     ctx->setContextProperty(QStringLiteral("settings"),          &settingsController);
     ctx->setContextProperty(QStringLiteral("iconThemeDetector"), &iconThemeDetector);
 
-    // Resolve QML — installed path first, then build-tree fallback
-    const QString qmlInstallDir = QStringLiteral(QML_INSTALL_DIR);
-    const QString qmlMain     = qmlInstallDir + QStringLiteral("/main.qml");
-    const QString qmlFallback = QStringLiteral("qml/main.qml");
-    const QString qmlPath = QFile::exists(qmlMain) ? qmlMain : qmlFallback;
+    // Resolve QML — search in order: installed path, next to exe, CWD
+    const QString exeDir = QCoreApplication::applicationDirPath();
+    const QStringList qmlCandidates = {
+        QStringLiteral(QML_INSTALL_DIR) + QStringLiteral("/main.qml"),
+        exeDir + QStringLiteral("/../qml/main.qml"),
+        exeDir + QStringLiteral("/qml/main.qml"),
+        QDir::currentPath() + QStringLiteral("/qml/main.qml"),
+    };
+
+    QString qmlPath;
+    for (const QString &c : qmlCandidates) {
+        if (QFile::exists(QDir::cleanPath(c))) {
+            qmlPath = QDir::cleanPath(c);
+            break;
+        }
+    }
+
+    if (qmlPath.isEmpty()) {
+        qWarning("kdock: cannot find main.qml — searched:\n  %s",
+                 qPrintable(qmlCandidates.join(QStringLiteral("\n  "))));
+        return 1;
+    }
 
     window.setSource(QUrl::fromLocalFile(qmlPath));
-    if (window.status() == QQuickView::Error)
+    if (window.status() == QQuickView::Error) {
+        for (const auto &err : window.errors())
+            qWarning("kdock: QML error: %s", qPrintable(err.toString()));
         return 1;
+    }
 
     window.show();
     return app.exec();

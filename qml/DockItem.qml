@@ -47,6 +47,11 @@ Item {
         function onCursorYChanged() { updateScale() }
     }
 
+    Connections {
+        target: iconThemeDetector
+        function onThemeChanged() { root.iconVersion++ }
+    }
+
     function updateScale() {
         const cx = root.x + root.width  / 2
         const cy = root.y + root.height / 2

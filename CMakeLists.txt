@@ -12,6 +12,12 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick WaylandClient DBus)
+# GuiPrivate provides qpa/qplatformnativeinterface.h for Wayland surface access.
+# It is REQUIRED at link time but some distros (Ubuntu 22.04) omit the CMake
+# config file from their qt6-base-private-dev package.  We request it as an
+# optional component and fall back to the raw include-directory variable which
+# is always populated when the Gui component is found.
+find_package(Qt6 OPTIONAL_COMPONENTS GuiPrivate)
 
 # KF6 WindowSystem is optional — TaskTracker falls back to pure DBus
 find_package(ECM QUIET NO_MODULE)
@@ -55,13 +61,16 @@ target_compile_definitions(kdock PRIVATE
 target_link_libraries(kdock PRIVATE
     Qt6::Core
     Qt6::Gui
-    Qt6::GuiPrivate
     Qt6::Quick
     Qt6::WaylandClient
     Qt6::DBus
 )
 
-# Private Qt Gui headers needed for qpa/qplatformnativeinterface.h
+# Link Qt6::GuiPrivate if its CMake config was found; always include the
+# private headers (the variable is set by the Gui component regardless).
+if(Qt6GuiPrivate_FOUND)
+    target_link_libraries(kdock PRIVATE Qt6::GuiPrivate)
+endif()
 target_include_directories(kdock PRIVATE ${Qt6Gui_PRIVATE_INCLUDE_DIRS})
 
 if(KF6WindowSystem_FOUND)

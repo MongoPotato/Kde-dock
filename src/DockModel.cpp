@@ -168,11 +168,18 @@ void DockModel::launchApp(const QString &appId)
     for (const QString &dir : dataDirs) {
         const QString path = dir + QChar('/') + appId + QStringLiteral(".desktop");
         if (QFile::exists(path)) {
-            QProcess::startDetached(QStringLiteral("kioclient5"), {QStringLiteral("exec"), path});
+            // gtk-launch works on both KDE and GNOME and takes just the app ID
+            if (QProcess::startDetached(QStringLiteral("gtk-launch"), {appId}))
+                return;
+            // KDE fallback
+            if (QProcess::startDetached(QStringLiteral("kioclient5"), {QStringLiteral("exec"), path}))
+                return;
+            // xdg-open can open .desktop files on many systems
+            QProcess::startDetached(QStringLiteral("xdg-open"), {path});
             return;
         }
     }
-    // Fallback: try to launch by appId directly
+    // Last resort: try appId as a binary name
     QProcess::startDetached(appId, {});
 }
 
@@ -184,8 +191,13 @@ void DockModel::closeApp(const QString &appId)
 
 void DockModel::addAppDialog()
 {
-    // Launch KDE application chooser; result is handled externally
-    QProcess::startDetached(QStringLiteral("kioclient5"), {});
+    // Open the applications directory so the user can browse and drag .desktop entries.
+    // kmenuedit is the KDE-native editor; xdg-open is the universal fallback.
+    const QString appsDir = QStandardPaths::standardLocations(
+        QStandardPaths::ApplicationsLocation).value(0);
+    if (!QProcess::startDetached(QStringLiteral("kmenuedit"), {}))
+        if (!QProcess::startDetached(QStringLiteral("dolphin"), {appsDir}))
+            QProcess::startDetached(QStringLiteral("xdg-open"), {appsDir});
 }
 
 bool DockModel::isAppRunning(const QString &appId) const
