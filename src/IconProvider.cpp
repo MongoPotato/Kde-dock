@@ -72,17 +72,25 @@ QImage IconProvider::requestImage(const QString &id, QSize *size, const QSize &r
         }
     }
 
-    // Ultimate fallback: colored rectangle with first letter of app ID
+    // Ultimate fallback: colored tile with first letter, unique hue per app.
+    // The hue is derived from the appId so each app gets a consistent but
+    // different colour.  High value (220/255) ensures visibility on any
+    // dark background.
     QImage img(target, QImage::Format_ARGB32);
     img.fill(Qt::transparent);
     {
+        quint32 hash = 0;
+        for (const QChar &c : appId)
+            hash = hash * 31u + static_cast<quint32>(c.unicode());
+        const QColor bgColor = QColor::fromHsv(static_cast<int>(hash % 360), 180, 200);
+
         QPainter p(&img);
         p.setRenderHint(QPainter::Antialiasing);
-        const qreal r = qMin(target.width(), target.height()) * 0.15;
-        p.setBrush(QColor(60, 70, 100));
+        const qreal r = qMin(target.width(), target.height()) * 0.22;
+        p.setBrush(bgColor);
         p.setPen(Qt::NoPen);
         p.drawRoundedRect(img.rect(), r, r);
-        p.setPen(QColor(200, 210, 240));
+        p.setPen(Qt::white);
         QFont f;
         f.setPixelSize(qMax(1, target.height() / 2));
         f.setBold(true);

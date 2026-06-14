@@ -20,11 +20,16 @@
 #include "SettingsController.h"
 #include "TaskTracker.h"
 
+#include <QCommandLineOption>
+#include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
+#include <QLoggingCategory>
 #include <QQmlContext>
+#include <QQmlEngine>
+#include <QQmlError>
 #include <QScreen>
 #include <QUrl>
 
@@ -32,7 +37,30 @@ int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("kdock"));
+    app.setOrganizationDomain(QStringLiteral("kdock"));
     app.setOrganizationName(QStringLiteral("kdock"));
+    app.setApplicationVersion(QStringLiteral("1.0"));
+
+    QCommandLineParser parser;
+    parser.setApplicationDescription(QStringLiteral("KDE Plasma 6 floating dock"));
+    parser.addHelpOption();
+    parser.addVersionOption();
+    parser.addOption(QCommandLineOption(
+        QStringLiteral("debug"),
+        QStringLiteral("Enable verbose QML and Qt logging; print startup diagnostics.")));
+    parser.process(app);
+    const bool debugMode = parser.isSet(QStringLiteral("debug"));
+
+    if (debugMode) {
+        QLoggingCategory::setFilterRules(
+            QStringLiteral("qml=true\n"
+                           "qt.qml=true\n"
+                           "qt.qml.binding=true\n"
+                           "qt.quick=true\n"
+                           "qt.quick.loader=true\n"
+                           "qt.wayland=true"));
+        qDebug("kdock [debug]: Qt %s | QML debug enabled", qVersion());
+    }
 
     // Detect KDE icon theme first so all subsequent QIcon::fromTheme() calls
     // use the correct theme.
@@ -72,6 +100,13 @@ int main(int argc, char *argv[])
     // Register custom image provider so QML can use "image://kdock/<appId>"
     window.engine()->addImageProvider(QStringLiteral("kdock"), new IconProvider());
 
+    // Always forward QML warnings to stderr.
+    QObject::connect(window.engine(), &QQmlEngine::warnings,
+                     [](const QList<QQmlError> &warnings) {
+        for (const QQmlError &w : warnings)
+            qWarning("kdock: QML: %s", qPrintable(w.toString()));
+    });
+
     // Expose C++ objects to QML
     QQmlContext *ctx = window.rootContext();
     ctx->setContextProperty(QStringLiteral("dockModel"),         &dockModel);
@@ -104,12 +139,24 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    if (debugMode) {
+        qDebug("kdock [debug]: pinned apps : [%s]",
+               qPrintable(config.pinnedApps().join(QStringLiteral(", "))));
+        qDebug("kdock [debug]: position    : %s", qPrintable(config.position()));
+        qDebug("kdock [debug]: icon size   : %d px", config.iconSize());
+        qDebug("kdock [debug]: model rows  : %d", dockModel.rowCount());
+        qDebug("kdock [debug]: QML path    : %s", qPrintable(qmlPath));
+    }
+
     window.setSource(QUrl::fromLocalFile(qmlPath));
     if (window.status() == QQuickView::Error) {
         for (const auto &err : window.errors())
             qWarning("kdock: QML error: %s", qPrintable(err.toString()));
         return 1;
     }
+
+    if (debugMode)
+        qDebug("kdock [debug]: QML loaded  : status=%d", static_cast<int>(window.status()));
 
     window.show();
     return app.exec();

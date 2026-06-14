@@ -103,10 +103,12 @@ Item {
     }
 
     // ── Container that slides up on hover ───────────────────────────────
+    // verticalCenter anchor is intentionally absent: the states below
+    // animate y to achieve the lift effect; anchors.verticalCenter would
+    // suppress any y change made via PropertyChanges.
     Item {
         id: iconContainer
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.verticalCenter:   parent.verticalCenter
         width:  root.implicitWidth
         height: root.implicitHeight
         y: 0
@@ -147,8 +149,12 @@ Item {
 
             Behavior on width { NumberAnimation { duration: 100 } }
 
-            // Bounce animation when urgent
-            SequentialAnimation on y {
+            // Bounce offset for urgent state — uses transform so anchors.centerIn
+            // keeps working while still allowing vertical displacement.
+            property real bounceOffset: 0
+            transform: Translate { y: iconImage.bounceOffset }
+
+            SequentialAnimation on bounceOffset {
                 id: bounceAnim
                 running: isUrgent
                 loops: Animation.Infinite
