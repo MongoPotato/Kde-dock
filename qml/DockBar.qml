@@ -75,8 +75,9 @@ Item {
         }
         onClicked: (event) => {
             if (event.button === Qt.RightButton) {
+                const sp = barMouse.mapToGlobal(event.x, event.y)
                 barContextMenu.mode = "dock"
-                barContextMenu.popup()
+                barContextMenu.openAt(sp.x, sp.y)
                 event.accepted = true
             } else {
                 event.accepted = false

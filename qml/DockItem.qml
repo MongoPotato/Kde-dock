@@ -220,9 +220,10 @@ Item {
                 dockModel.launchApp(root.appId)
                 dockModel.clearUrgency(root.appId)
             } else {
+                const sp = mouse.mapToGlobal(event.x, event.y)
                 contextMenu.mode  = "app"
                 contextMenu.appId = root.appId
-                contextMenu.popup()
+                contextMenu.openAt(sp.x, sp.y)
             }
         }
 
