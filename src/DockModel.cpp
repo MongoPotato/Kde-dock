@@ -18,6 +18,12 @@
 #include <QSettings>
 #include <QStandardPaths>
 
+static QString shortName(const QString &appId)
+{
+    const int dot = appId.lastIndexOf('.');
+    return dot >= 0 ? appId.mid(dot + 1).toLower() : appId.toLower();
+}
+
 // Resolve a human-readable name and icon from the system .desktop database.
 static std::pair<QString, QString> desktopInfo(const QString &appId)
 {
@@ -105,16 +111,23 @@ void DockModel::rebuild()
 
     for (const QString &id : pinned) {
         DockEntry e = makeEntry(id, true);
-        e.running = m_runningApps.contains(id);
-        e.windowCount = m_windowCounts.value(id, 0);
+        e.running = appMatchesRunning(id);
+        e.windowCount = windowCountForRunning(id);
         e.urgent = m_urgentApps.contains(id);
         m_entries.append(e);
         seen.insert(id);
     }
 
-    // Append running-but-not-pinned apps at the end
+    // Append running-but-not-pinned apps at the end.
+    // Skip if a pinned entry already covers this app via short-name match.
     for (const QString &id : std::as_const(m_runningApps)) {
-        if (!seen.contains(id)) {
+        bool alreadySeen = seen.contains(id);
+        if (!alreadySeen) {
+            const QString sn = shortName(id);
+            for (const QString &s : std::as_const(seen))
+                if (shortName(s) == sn) { alreadySeen = true; break; }
+        }
+        if (!alreadySeen) {
             DockEntry e = makeEntry(id, false);
             e.running = true;
             e.windowCount = m_windowCounts.value(id, 0);
@@ -143,6 +156,42 @@ int DockModel::indexOf(const QString &appId) const
         if (m_entries.at(i).appId == appId)
             return i;
     return -1;
+}
+
+// Fuzzy indexOf: exact match first, then short-name fallback.
+// Handles tracker ids like "konsole" matching dock ids like "org.kde.konsole".
+int DockModel::indexOfFuzzy(const QString &appId) const
+{
+    for (int i = 0; i < m_entries.size(); ++i)
+        if (m_entries.at(i).appId == appId)
+            return i;
+    const QString sn = shortName(appId);
+    for (int i = 0; i < m_entries.size(); ++i)
+        if (shortName(m_entries.at(i).appId) == sn)
+            return i;
+    return -1;
+}
+
+bool DockModel::appMatchesRunning(const QString &appId) const
+{
+    if (m_runningApps.contains(appId))
+        return true;
+    const QString sn = shortName(appId);
+    for (const QString &ra : m_runningApps)
+        if (shortName(ra) == sn)
+            return true;
+    return false;
+}
+
+int DockModel::windowCountForRunning(const QString &appId) const
+{
+    if (m_windowCounts.contains(appId))
+        return m_windowCounts.value(appId, 0);
+    const QString sn = shortName(appId);
+    for (auto it = m_windowCounts.cbegin(); it != m_windowCounts.cend(); ++it)
+        if (shortName(it.key()) == sn)
+            return it.value();
+    return 0;
 }
 
 void DockModel::pinApp(const QString &appId)
@@ -194,13 +243,13 @@ void DockModel::launchApp(const QString &appId)
 
 void DockModel::activateApp(const QString &appId)
 {
-    const bool running = isAppRunning(appId);
-    qDebug("kdock [activate]: app=%s  isRunning=%s  runningApps=[%s]",
+    const bool hasWindows = m_tracker && m_tracker->hasWindowForApp(appId);
+    qDebug("kdock [activate]: app=%s  hasWindows=%s  runningApps=[%s]",
            qPrintable(appId),
-           running ? "true" : "false",
+           hasWindows ? "true" : "false",
            qPrintable(m_runningApps.join(QStringLiteral(", "))));
 
-    if (m_tracker && running) {
+    if (hasWindows) {
         m_tracker->activateWindow(appId);
         return;
     }
@@ -238,7 +287,7 @@ bool DockModel::isAppPinned(const QString &appId) const
 
 int DockModel::windowCountForApp(const QString &appId) const
 {
-    return m_windowCounts.value(appId, 0);
+    return windowCountForRunning(appId);
 }
 
 QString DockModel::displayNameForApp(const QString &appId) const
@@ -298,7 +347,7 @@ void DockModel::moveApp(int fromIndex, int toIndex)
 void DockModel::clearUrgency(const QString &appId)
 {
     m_urgentApps.remove(appId);
-    const int idx = indexOf(appId);
+    const int idx = indexOfFuzzy(appId);
     if (idx >= 0 && m_entries.at(idx).urgent) {
         m_entries[idx].urgent = false;
         const QModelIndex mi = index(idx);
@@ -320,7 +369,7 @@ void DockModel::onRunningAppsChanged(const QStringList &appIds)
 void DockModel::onWindowUrgent(const QString &appId)
 {
     m_urgentApps.insert(appId);
-    const int idx = indexOf(appId);
+    const int idx = indexOfFuzzy(appId);
     if (idx >= 0) {
         m_entries[idx].urgent = true;
         const QModelIndex mi = index(idx);
@@ -336,7 +385,7 @@ void DockModel::onWindowNotUrgent(const QString &appId)
 void DockModel::onWindowCountChanged(const QString &appId, int count)
 {
     m_windowCounts[appId] = count;
-    const int idx = indexOf(appId);
+    const int idx = indexOfFuzzy(appId);
     if (idx >= 0) {
         m_entries[idx].windowCount = count;
         const QModelIndex mi = index(idx);

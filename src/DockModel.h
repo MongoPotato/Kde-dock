@@ -76,6 +76,9 @@ private:
     void rebuild();
     DockEntry makeEntry(const QString &appId, bool pinned) const;
     int indexOf(const QString &appId) const;
+    int indexOfFuzzy(const QString &appId) const;
+    bool appMatchesRunning(const QString &appId) const;
+    int windowCountForRunning(const QString &appId) const;
 
     ConfigWatcher *m_config;
     TaskTracker *m_tracker = nullptr;

@@ -15,6 +15,14 @@
 
 static constexpr int kPollIntervalMs = 500;
 
+// Extract the last dotted component as a lowercase short name.
+// "org.kde.konsole" → "konsole",  "konsole" → "konsole"
+static QString shortName(const QString &appId)
+{
+    const int dot = appId.lastIndexOf('.');
+    return dot >= 0 ? appId.mid(dot + 1).toLower() : appId.toLower();
+}
+
 static QString normaliseAppId(const QString &resourceClass)
 {
     if (resourceClass.isEmpty())
@@ -188,24 +196,43 @@ void TaskTracker::closeWindows(const QString &appId)
     }
 }
 
+QList<quint64> TaskTracker::windowsForApp(const QString &appId) const
+{
+    QList<quint64> result;
+    const QString sn = shortName(appId);
+    for (auto it = m_windowAppIds.cbegin(); it != m_windowAppIds.cend(); ++it) {
+        if (it.value() == appId || shortName(it.value()) == sn)
+            result.append(it.key());
+    }
+    return result;
+}
+
+bool TaskTracker::hasWindowForApp(const QString &appId) const
+{
+    return !windowsForApp(appId).isEmpty();
+}
+
 void TaskTracker::activateWindow(const QString &appId)
 {
-    // Log all tracked windows to help diagnose app-id mismatches
-    QStringList tracked;
-    for (auto it = m_windowAppIds.cbegin(); it != m_windowAppIds.cend(); ++it)
-        tracked << QStringLiteral("%1→%2").arg(it.key()).arg(it.value());
-    qDebug("kdock [activate]: looking for appId=%s  tracked windows: [%s]",
-           qPrintable(appId), qPrintable(tracked.join(QStringLiteral(", "))));
-
-    for (auto it = m_windowAppIds.cbegin(); it != m_windowAppIds.cend(); ++it) {
-        if (it.value() == appId) {
-            qDebug("kdock [activate]: calling KWin activateWindow(%llu)", (unsigned long long)it.key());
-            const QDBusMessage reply = m_kwin->call(QStringLiteral("activateWindow"),
-                                                    static_cast<qlonglong>(it.key()));
-            if (reply.type() == QDBusMessage::ErrorMessage)
-                qWarning("kdock [activate]: KWin DBus error: %s", qPrintable(reply.errorMessage()));
-            return;
-        }
+    const QList<quint64> windows = windowsForApp(appId);
+    if (windows.isEmpty()) {
+        qDebug("kdock [activate]: no windows found for appId=%s (shortName=%s)  tracked: %d windows",
+               qPrintable(appId), qPrintable(shortName(appId)), (int)m_windowAppIds.size());
+        return;
     }
-    qDebug("kdock [activate]: no window found for appId=%s", qPrintable(appId));
+
+    int &idx = m_windowCycleIndex[appId];
+    if (idx >= windows.size())
+        idx = 0;
+    const int current = idx;
+    idx = (idx + 1) % windows.size();
+    const quint64 wid = windows.at(current);
+
+    qDebug("kdock [activate]: wid=%llu (window %d/%d) for appId=%s",
+           (unsigned long long)wid, current + 1, (int)windows.size(), qPrintable(appId));
+
+    const QDBusMessage reply = m_kwin->call(QStringLiteral("activateWindow"),
+                                             static_cast<qlonglong>(wid));
+    if (reply.type() == QDBusMessage::ErrorMessage)
+        qWarning("kdock [activate]: KWin DBus error: %s", qPrintable(reply.errorMessage()));
 }

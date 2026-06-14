@@ -6,6 +6,7 @@
 // appId matching heuristic: lowercase resourceClass → strip ".desktop"
 // suffix → compare against known app IDs from the .desktop file index.
 
+#include <QList>
 #include <QMap>
 #include <QObject>
 #include <QSet>
@@ -26,6 +27,8 @@ public:
     Q_INVOKABLE void closeWindows(const QString &appId);
     Q_INVOKABLE void activateWindow(const QString &appId);
 
+    bool hasWindowForApp(const QString &appId) const;
+
     Q_PROPERTY(QString activeAppId READ activeAppId NOTIFY activeAppChanged)
 
 signals:
@@ -44,6 +47,7 @@ private slots:
 private:
     QString windowToAppId(const QVariantMap &info) const;
     void refresh();
+    QList<quint64> windowsForApp(const QString &appId) const;
 
     QDBusInterface *m_kwin = nullptr;
     QTimer m_pollTimer;
@@ -52,4 +56,5 @@ private:
     QStringList m_runningApps;
     QSet<QString> m_urgentApps;
     QString m_activeAppId;
+    QMap<QString, int> m_windowCycleIndex;  // appId → next window index for cycling
 };

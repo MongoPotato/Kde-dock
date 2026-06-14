@@ -84,7 +84,8 @@ int main(int argc, char *argv[])
     //                 don't clip at the window edge.
     auto computeThicknesses = [&](int &base, int &win) {
         base = config.iconSize() + config.padding() * 2;
-        win  = base + config.hoverLiftPx() + 4;
+        // Extra space for hover lift (8px default) + click bounce peak (-22px) + margin
+        win  = base + config.hoverLiftPx() + 32;
     };
 
     {

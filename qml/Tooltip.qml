@@ -1,34 +1,28 @@
-// Tooltip is intentionally kept as a plain QML Rectangle rather than
-// Qt.ToolTip so we have full control over its position relative to
-// the layer-shell window geometry.
-//
-// Bindings:
-//   text          → display string (app name)
-//   dockPosition  → "bottom"|"top"|"left"|"right" (determines placement side)
-//   parentItem    → the DockItem that owns this tooltip
+// Tooltip renders as a separate OS window so it is never clipped by the
+// thin dock layer-shell surface. It positions itself above/beside the icon
+// using mapToGlobal so screen coordinates are always correct.
 
 import QtQuick 2.15
 import QtQuick.Window 2.15
 
-Item {
+Window {
     id: root
 
     property string text: ""
     property string dockPosition: "bottom"
     property Item   parentItem: null
 
-    // Offset between tooltip edge and icon edge
-    readonly property int gap: 8
-
-    // Re-parent to the QQuickView's content item so the tooltip can render
-    // outside the DockItem's own bounds without being clipped.
-    parent: root.parentItem ? root.parentItem.Window.contentItem : null
-
-    visible: false
-    opacity: 0
+    flags:  Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+    color:  "transparent"
+    width:  label.implicitWidth + 20
+    height: label.implicitHeight + 12
 
     function show() {
+        if (!parentItem || text === "") return
+        _reposition()
         visible = true
+        raise()
+        opacity = 0
         fadeIn.restart()
     }
 
@@ -36,51 +30,43 @@ Item {
         fadeOut.restart()
     }
 
-    NumberAnimation { id: fadeIn;  target: root; property: "opacity"; to: 1; duration: 120 }
-    NumberAnimation {
-        id: fadeOut
-        target: root
-        property: "opacity"
-        to: 0
-        duration: 120
-        onStopped: if (root.opacity === 0) root.visible = false
-    }
-
-    // Position relative to parentItem within the shared Window
-    function reposition() {
-        if (!parentItem) return
-        const mapped = parentItem.mapToItem(null, 0, 0)
+    function _reposition() {
+        const sp = parentItem.mapToGlobal(0, 0)
         const pw = parentItem.width
         const ph = parentItem.height
-
+        const gap = 8
         switch (dockPosition) {
         case "bottom":
-            x = mapped.x + pw / 2 - bg.width / 2
-            y = mapped.y - bg.height - gap
+            x = Math.round(sp.x + pw / 2 - width / 2)
+            y = sp.y - height - gap
             break
         case "top":
-            x = mapped.x + pw / 2 - bg.width / 2
-            y = mapped.y + ph + gap
+            x = Math.round(sp.x + pw / 2 - width / 2)
+            y = sp.y + ph + gap
             break
         case "left":
-            x = mapped.x + pw + gap
-            y = mapped.y + ph / 2 - bg.height / 2
+            x = sp.x + pw + gap
+            y = Math.round(sp.y + ph / 2 - height / 2)
             break
         case "right":
-            x = mapped.x - bg.width - gap
-            y = mapped.y + ph / 2 - bg.height / 2
+            x = sp.x - width - gap
+            y = Math.round(sp.y + ph / 2 - height / 2)
             break
         }
     }
 
-    onVisibleChanged: if (visible) reposition()
+    NumberAnimation { id: fadeIn;  target: root; property: "opacity"; to: 1.0; duration: 120 }
+    NumberAnimation {
+        id: fadeOut; target: root; property: "opacity"; to: 0.0; duration: 100
+        onStopped: if (root.opacity < 0.01) root.visible = false
+    }
 
     Rectangle {
-        id: bg
-        color: "#cc000000"
+        anchors.fill: parent
+        color:  "#dd101018"
         radius: 6
-        width:  label.width  + 16
-        height: label.height + 10
+        border.color: "#555577"
+        border.width: 1
 
         Text {
             id: label
