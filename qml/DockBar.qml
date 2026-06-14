@@ -108,14 +108,7 @@ Item {
 
         Repeater {
             model: isHorizontal ? dockModel : null
-            DockItem {
-                required property string appId
-                required property string displayName
-                required property string iconName
-                required property bool isPinned
-                required property bool isRunning
-                required property int  windowCount
-                required property bool isUrgent
+            delegate: DockItem {
                 dockBar:  root
                 position: root.position
             }
@@ -130,14 +123,7 @@ Item {
 
         Repeater {
             model: isHorizontal ? null : dockModel
-            DockItem {
-                required property string appId
-                required property string displayName
-                required property string iconName
-                required property bool isPinned
-                required property bool isRunning
-                required property int  windowCount
-                required property bool isUrgent
+            delegate: DockItem {
                 dockBar:  root
                 position: root.position
             }

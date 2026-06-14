@@ -226,11 +226,15 @@ Window {
                     }
                 }
 
-                // Drag-to-reorder list
-                ListView {
-                    id: pinnedListView
+                // Drag-to-reorder list (wrapped in Item so the empty-state Text
+                // can use anchors freely without conflicting with ColumnLayout)
+                Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+
+                ListView {
+                    id: pinnedListView
+                    anchors.fill: parent
                     clip: true
                     spacing: 0
                     model: DelegateModel {
@@ -329,7 +333,7 @@ Window {
                     }
                 }
 
-                // Empty-state hint
+                // Empty-state hint overlaid on the list area
                 Text {
                     visible: pinnedModel.count === 0
                     anchors.centerIn: parent
@@ -338,6 +342,7 @@ Window {
                     horizontalAlignment: Text.AlignHCenter
                     font.pixelSize: 13
                 }
+                } // Item wrapper
             }
         }
 
