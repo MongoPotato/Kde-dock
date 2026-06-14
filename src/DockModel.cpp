@@ -172,24 +172,35 @@ void DockModel::launchApp(const QString &appId)
     for (const QString &dir : dataDirs) {
         const QString path = dir + QChar('/') + appId + QStringLiteral(".desktop");
         if (QFile::exists(path)) {
-            // gtk-launch works on both KDE and GNOME and takes just the app ID
-            if (QProcess::startDetached(QStringLiteral("gtk-launch"), {appId}))
+            qDebug("kdock [launch]: %s → found .desktop at %s", qPrintable(appId), qPrintable(path));
+            if (QProcess::startDetached(QStringLiteral("gtk-launch"), {appId})) {
+                qDebug("kdock [launch]: launched via gtk-launch");
                 return;
-            // KDE fallback
-            if (QProcess::startDetached(QStringLiteral("kioclient5"), {QStringLiteral("exec"), path}))
+            }
+            if (QProcess::startDetached(QStringLiteral("kioclient5"), {QStringLiteral("exec"), path})) {
+                qDebug("kdock [launch]: launched via kioclient5");
                 return;
-            // xdg-open can open .desktop files on many systems
+            }
             QProcess::startDetached(QStringLiteral("xdg-open"), {path});
+            qDebug("kdock [launch]: launched via xdg-open");
             return;
         }
     }
-    // Last resort: try appId as a binary name
+    qDebug("kdock [launch]: no .desktop for %s — tried: %s — falling back to binary",
+           qPrintable(appId),
+           qPrintable(dataDirs.join(QStringLiteral(", "))));
     QProcess::startDetached(appId, {});
 }
 
 void DockModel::activateApp(const QString &appId)
 {
-    if (m_tracker && isAppRunning(appId)) {
+    const bool running = isAppRunning(appId);
+    qDebug("kdock [activate]: app=%s  isRunning=%s  runningApps=[%s]",
+           qPrintable(appId),
+           running ? "true" : "false",
+           qPrintable(m_runningApps.join(QStringLiteral(", "))));
+
+    if (m_tracker && running) {
         m_tracker->activateWindow(appId);
         return;
     }

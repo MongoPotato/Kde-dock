@@ -18,13 +18,23 @@ Item {
     property bool _dockHovered: false
     property bool dockVisible: !config.autohide || _dockHovered
 
+    onDockVisibleChanged: console.log("[kdock autohide] dockVisible →", dockVisible,
+                                      "  autohide:", config.autohide,
+                                      "  _dockHovered:", _dockHovered)
+
     // ── Hover detection for auto-hide ────────────────────────────────────
     MouseArea {
         anchors.fill: parent
         hoverEnabled: true
         propagateComposedEvents: true
-        onEntered: root._dockHovered = true
-        onExited:  root._dockHovered = false
+        onEntered: {
+            console.log("[kdock autohide] root MouseArea ENTERED")
+            root._dockHovered = true
+        }
+        onExited: {
+            console.log("[kdock autohide] root MouseArea EXITED")
+            root._dockHovered = false
+        }
     }
 
     // ── Dock surface ─────────────────────────────────────────────────────

@@ -80,12 +80,11 @@ int main(int argc, char *argv[])
     window.setAnchor(config.position());
 
     // baseThickness = visual strip height (reserved screen space / exclusive zone).
-    // winThickness  = full window height: strip + overflow space for magnified/lifted icons.
+    // winThickness  = full window height: strip + hoverLiftPx so lifted icons
+    //                 don't clip at the window edge.
     auto computeThicknesses = [&](int &base, int &win) {
         base = config.iconSize() + config.padding() * 2;
-        win  = qRound(config.iconSize() * config.magnifyScale())
-             + config.padding() * 2 + config.hoverLiftPx() + 8;
-        if (win < base) win = base;
+        win  = base + config.hoverLiftPx() + 4;
     };
 
     {

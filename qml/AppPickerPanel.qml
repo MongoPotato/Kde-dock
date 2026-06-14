@@ -25,7 +25,7 @@ Window {
     minimumWidth: 600
     minimumHeight: 420
     color: "#1a1a2e"
-    flags: Qt.Dialog | Qt.WindowCloseButtonHint | Qt.WindowTitleHint
+    flags: Qt.Dialog | Qt.WindowCloseButtonHint | Qt.WindowTitleHint | Qt.WindowStaysOnTopHint
 
     // ── Local list model mirrors config.pinnedApps ───────────────────────
     // Changes are applied to config immediately (no deferred save needed).

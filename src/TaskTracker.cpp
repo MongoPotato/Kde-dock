@@ -8,6 +8,7 @@
 
 #include <QDBusConnection>
 #include <QDBusInterface>
+#include <QDBusMessage>
 #include <QDBusReply>
 #include <QFile>
 #include <QStandardPaths>
@@ -158,6 +159,8 @@ void TaskTracker::refresh()
     const QStringList newRunning = newCounts.keys();
     if (newRunning != m_runningApps) {
         m_runningApps = newRunning;
+        qDebug("kdock [running]: apps changed → [%s]",
+               qPrintable(m_runningApps.join(QStringLiteral(", "))));
         emit runningAppsChanged(m_runningApps);
     }
 }
@@ -187,10 +190,22 @@ void TaskTracker::closeWindows(const QString &appId)
 
 void TaskTracker::activateWindow(const QString &appId)
 {
+    // Log all tracked windows to help diagnose app-id mismatches
+    QStringList tracked;
+    for (auto it = m_windowAppIds.cbegin(); it != m_windowAppIds.cend(); ++it)
+        tracked << QStringLiteral("%1→%2").arg(it.key()).arg(it.value());
+    qDebug("kdock [activate]: looking for appId=%s  tracked windows: [%s]",
+           qPrintable(appId), qPrintable(tracked.join(QStringLiteral(", "))));
+
     for (auto it = m_windowAppIds.cbegin(); it != m_windowAppIds.cend(); ++it) {
         if (it.value() == appId) {
-            m_kwin->call(QStringLiteral("activateWindow"), it.key());
+            qDebug("kdock [activate]: calling KWin activateWindow(%llu)", (unsigned long long)it.key());
+            const QDBusMessage reply = m_kwin->call(QStringLiteral("activateWindow"),
+                                                    static_cast<qlonglong>(it.key()));
+            if (reply.type() == QDBusMessage::ErrorMessage)
+                qWarning("kdock [activate]: KWin DBus error: %s", qPrintable(reply.errorMessage()));
             return;
         }
     }
+    qDebug("kdock [activate]: no window found for appId=%s", qPrintable(appId));
 }

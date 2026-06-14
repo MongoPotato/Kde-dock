@@ -11,12 +11,12 @@
 //   isRunning    → role from DockModel  (bool)
 //   windowCount  → role from DockModel  (int)
 //   isUrgent     → role from DockModel  (bool)
-//   dockBar      → parent DockBar item  (for magnification)
+//   dockBar      → parent DockBar item
 //   position     → dock edge            (string)
 //
 // Hover state machine:
-//   "normal"  → y=0, glow invisible, scale = magnifyScale
-//   "hovered" → y=-liftPx, glow visible, scale = magnifyScale * scaleBoost
+//   "normal"  → y=0, glow invisible
+//   "hovered" → y=-liftPx, glow visible
 
 import QtQuick 2.15
 import QtQuick.Controls 2.15
@@ -38,14 +38,14 @@ Item {
 
     readonly property bool isHorizontal: position === "bottom" || position === "top"
 
-    // Magnification scale driven by cursor distance to this item's centre
-    property real magnifyScale: 1.0
+    // Debug: log when running state changes so we can verify TaskTracker is working
+    onIsRunningChanged: console.log("[kdock item]", root.appId, "isRunning →", isRunning,
+                                    "windowCount:", windowCount)
 
     Connections {
         target: dockBar
-        function onCursorXChanged() { updateScale() }
-        function onCursorYChanged() { updateScale() }
         function onDockVisibleChanged() {
+            console.log("[kdock autohide] item", root.appId, "dockVisible →", dockBar.dockVisible)
             if (!dockBar.dockVisible) {
                 root.state = "normal"
                 clickBounceAnim.stop()
@@ -59,19 +59,9 @@ Item {
         function onThemeChanged() { root.iconVersion++ }
     }
 
-    function updateScale() {
-        // Use stable base size (not magnified width) to avoid a feedback loop
-        // where growing the icon shifts its centre which re-triggers magnification.
-        const baseSize = config.iconSize + config.iconBgPadding * 2 + 4
-        const cx = root.x + baseSize / 2
-        const cy = root.y + baseSize / 2
-        magnifyScale = dockBar.scaleForItem(cx, cy)
-    }
-
-    implicitWidth:  config.iconSize * magnifyScale + config.iconBgPadding * 2 + 4
-    implicitHeight: config.iconSize * magnifyScale + config.iconBgPadding * 2 + 4
-
-    Behavior on magnifyScale { NumberAnimation { duration: 80 } }
+    // Fixed item size (no magnification)
+    implicitWidth:  config.iconSize + config.iconBgPadding * 2 + 4
+    implicitHeight: config.iconSize + config.iconBgPadding * 2 + 4
 
     // ── Hover state machine ──────────────────────────────────────────────
     // State "normal": y offset = 0, glow opacity = 0
@@ -105,7 +95,7 @@ Item {
     Rectangle {
         id: hoverGlow
         anchors.centerIn: parent
-        width:  config.iconSize * root.magnifyScale + config.iconBgPadding * 2
+        width:  config.iconSize + config.iconBgPadding * 2
         height: width
         radius: width / 2
         color: config.hoverGlowColor === "auto" ? "#5294e2" : config.hoverGlowColor
@@ -143,7 +133,7 @@ Item {
         Rectangle {
             id: iconBg
             anchors.centerIn: iconImage
-            width:  config.iconSize * root.magnifyScale + config.iconBgPadding * 2
+            width:  config.iconSize + config.iconBgPadding * 2
             height: width
             radius: iconBgRadius()
             color:  config.iconBgColor
@@ -166,13 +156,12 @@ Item {
         Image {
             id: iconImage
             anchors.centerIn: parent
-            width:  config.iconSize * root.magnifyScale * (root.state === "hovered" ? config.hoverScaleBoost : 1.0)
+            width:  config.iconSize * (root.state === "hovered" ? config.hoverScaleBoost : 1.0)
             height: width
             source: "image://kdock/" + root.iconName + "?v=" + root.iconVersion
-            // Request at max render size so upscaling during magnification stays crisp.
-            // Qt smooth-scales the high-res image down for normal display.
-            sourceSize.width: config.scrollMaxSize * 3
-            sourceSize.height: config.scrollMaxSize * 3
+            // Request at high resolution so the icon stays crisp on HiDPI screens.
+            sourceSize.width:  256
+            sourceSize.height: 256
             fillMode: Image.PreserveAspectFit
             smooth: true
             asynchronous: true

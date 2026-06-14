@@ -1,9 +1,5 @@
 // DockBar is the visible dock surface.
 //
-// Parabolic magnification:
-//   scale = 1 + (maxExtraScale * max(0, 1 - dist/magnetRadius))
-//   where dist = distance from cursor to item centre.
-//
 // Adaptive colour: when config.adaptiveColor is on, the background tints
 // toward the dominant colour of the active window's icon.
 
@@ -17,18 +13,7 @@ Item {
     property bool dockVisible: true
     readonly property bool isHorizontal: position === "bottom" || position === "top"
 
-    property real cursorX: -1000
-    property real cursorY: -1000
-
-    function scaleForItem(itemCentreX, itemCentreY) {
-        if (!config.magnify) return 1.0
-        const dist = Math.sqrt(
-            Math.pow(cursorX - itemCentreX, 2) +
-            Math.pow(cursorY - itemCentreY, 2)
-        )
-        const extra = config.magnifyScale - 1.0
-        return 1.0 + extra * Math.max(0, 1 - dist / config.magnifyRadius)
-    }
+    onDockVisibleChanged: console.log("[kdock autohide] DockBar.dockVisible →", dockVisible)
 
     implicitWidth:  isHorizontal ? itemRow.implicitWidth    + config.padding * 2
                                  : config.iconSize          + config.padding * 2
@@ -36,9 +21,9 @@ Item {
                                  : itemColumn.implicitHeight + config.padding * 2
 
     // ── Background ───────────────────────────────────────────────────────
-    // Anchored to the dock EDGE so the background only covers the visual
-    // strip. The window is taller than the strip to allow magnified icons
-    // to overflow into the transparent space without being clipped.
+    // Anchored to the dock EDGE. The window may be taller than the strip
+    // (to allow hover-lift overflow) so the background only fills the
+    // visual strip, not the entire window.
     Rectangle {
         readonly property int stripSize: config.iconSize + config.padding * 2
 
@@ -70,22 +55,14 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 150 } }
     }
 
-    // ── Cursor tracker for magnification ─────────────────────────────────
+    // ── Mouse area for right-click dock menu ──────────────────────────────
     MouseArea {
         id: barMouse
         anchors.fill: parent
-        hoverEnabled: true
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        hoverEnabled: false
+        acceptedButtons: Qt.RightButton
         propagateComposedEvents: true
 
-        onPositionChanged: (mouse) => {
-            root.cursorX = mouse.x
-            root.cursorY = mouse.y
-        }
-        onExited: {
-            root.cursorX = -1000
-            root.cursorY = -1000
-        }
         onClicked: (event) => {
             if (event.button === Qt.RightButton) {
                 const sp = barMouse.mapToGlobal(event.x, event.y)
