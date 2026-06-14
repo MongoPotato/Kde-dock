@@ -187,6 +187,15 @@ void DockModel::launchApp(const QString &appId)
     QProcess::startDetached(appId, {});
 }
 
+void DockModel::activateApp(const QString &appId)
+{
+    if (m_tracker && isAppRunning(appId)) {
+        m_tracker->activateWindow(appId);
+        return;
+    }
+    launchApp(appId);
+}
+
 void DockModel::closeApp(const QString &appId)
 {
     if (m_tracker)

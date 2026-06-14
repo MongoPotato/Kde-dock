@@ -32,6 +32,7 @@ Item {
         id: dockBar
         anchors.fill: parent
         position: config.position
+        dockVisible: root.dockVisible
 
         transform: Translate {
             // Slide by the VISUAL dock thickness, not the full window height.

@@ -422,6 +422,11 @@ bool ConfigWatcher::adaptiveColor() const
     return m_config.value(QStringLiteral("adaptiveColor")).toBool(false);
 }
 
+QString ConfigWatcher::configJson() const
+{
+    return QString::fromUtf8(QJsonDocument(m_config).toJson(QJsonDocument::Indented));
+}
+
 void ConfigWatcher::setBlurEnabled(bool on)
 {
     m_config[QStringLiteral("blurEnabled")] = on;

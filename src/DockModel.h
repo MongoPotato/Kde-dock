@@ -41,6 +41,7 @@ public:
     Q_INVOKABLE void unpinApp(const QString &appId);
     Q_INVOKABLE void moveApp(int fromIndex, int toIndex);
     Q_INVOKABLE void launchApp(const QString &appId);
+    Q_INVOKABLE void activateApp(const QString &appId);
     Q_INVOKABLE void closeApp(const QString &appId);
     Q_INVOKABLE void addAppDialog();
     Q_INVOKABLE void clearUrgency(const QString &appId);

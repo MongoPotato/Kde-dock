@@ -107,8 +107,14 @@ public:
     Q_PROPERTY(bool blurEnabled READ blurEnabled NOTIFY configChanged)
     Q_PROPERTY(bool adaptiveColor READ adaptiveColor NOTIFY configChanged)
 
+    // ── Diagnostics ───────────────────────────────────────────────────────
+    Q_PROPERTY(QString configJson READ configJson NOTIFY configChanged)
+    Q_PROPERTY(QString configFilePath READ configPath CONSTANT)
+
     bool blurEnabled() const;
     bool adaptiveColor() const;
+
+    QString configJson() const;
 
     // ── Mutators (called by SettingsController / QML) ─────────────────────
     Q_INVOKABLE void setIconSize(int px);

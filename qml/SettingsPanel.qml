@@ -257,6 +257,49 @@ Window {
 
                 Rectangle { height: 1; color: "#444466"; Layout.fillWidth: true }
 
+                // ── Config file / JSON viewer ─────────────────────────────
+                property bool showConfigJson: false
+
+                RowLayout { spacing: 12; Layout.fillWidth: true
+                    ColumnLayout { spacing: 2
+                        Text { text: "Config file";    color: "white";   font.pixelSize: 13 }
+                        Text {
+                            text: config.configFilePath
+                            color: "#aaddff"; font.pixelSize: 10
+                            elide: Text.ElideMiddle
+                            Layout.maximumWidth: 320
+                        }
+                    }
+                    Item { Layout.fillWidth: true }
+                    Button {
+                        text: settingsCol.showConfigJson ? "Hide JSON" : "View JSON"
+                        flat: true
+                        palette.buttonText: "#aaddff"
+                        onClicked: settingsCol.showConfigJson = !settingsCol.showConfigJson
+                    }
+                }
+
+                ScrollView {
+                    visible: settingsCol.showConfigJson
+                    Layout.fillWidth: true
+                    implicitHeight: 200
+                    clip: true
+
+                    TextArea {
+                        text: config.configJson
+                        readOnly: true
+                        color: "#ccddff"
+                        font.family: "monospace"
+                        font.pixelSize: 11
+                        wrapMode: TextArea.Wrap
+                        background: Rectangle { color: "#111122"; radius: 4 }
+                        selectByMouse: true
+                        padding: 8
+                    }
+                }
+
+                Rectangle { height: 1; color: "#444466"; Layout.fillWidth: true }
+
                 // ── Bottom action row ─────────────────────────────────────
                 RowLayout { Layout.fillWidth: true
                     Button {

@@ -184,3 +184,13 @@ void TaskTracker::closeWindows(const QString &appId)
         }
     }
 }
+
+void TaskTracker::activateWindow(const QString &appId)
+{
+    for (auto it = m_windowAppIds.cbegin(); it != m_windowAppIds.cend(); ++it) {
+        if (it.value() == appId) {
+            m_kwin->call(QStringLiteral("activateWindow"), it.key());
+            return;
+        }
+    }
+}

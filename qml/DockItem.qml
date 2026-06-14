@@ -45,6 +45,13 @@ Item {
         target: dockBar
         function onCursorXChanged() { updateScale() }
         function onCursorYChanged() { updateScale() }
+        function onDockVisibleChanged() {
+            if (!dockBar.dockVisible) {
+                root.state = "normal"
+                clickBounceAnim.stop()
+                iconContainer.clickBounceY = 0
+            }
+        }
     }
 
     Connections {
@@ -53,8 +60,11 @@ Item {
     }
 
     function updateScale() {
-        const cx = root.x + root.width  / 2
-        const cy = root.y + root.height / 2
+        // Use stable base size (not magnified width) to avoid a feedback loop
+        // where growing the icon shifts its centre which re-triggers magnification.
+        const baseSize = config.iconSize + config.iconBgPadding * 2 + 4
+        const cx = root.x + baseSize / 2
+        const cy = root.y + baseSize / 2
         magnifyScale = dockBar.scaleForItem(cx, cy)
     }
 
@@ -159,6 +169,10 @@ Item {
             width:  config.iconSize * root.magnifyScale * (root.state === "hovered" ? config.hoverScaleBoost : 1.0)
             height: width
             source: "image://kdock/" + root.iconName + "?v=" + root.iconVersion
+            // Request at max render size so upscaling during magnification stays crisp.
+            // Qt smooth-scales the high-res image down for normal display.
+            sourceSize.width: config.scrollMaxSize * 3
+            sourceSize.height: config.scrollMaxSize * 3
             fillMode: Image.PreserveAspectFit
             smooth: true
             asynchronous: true
@@ -217,7 +231,7 @@ Item {
         onClicked: (event) => {
             if (event.button === Qt.LeftButton) {
                 clickBounceAnim.restart()
-                dockModel.launchApp(root.appId)
+                dockModel.activateApp(root.appId)
                 dockModel.clearUrgency(root.appId)
             } else {
                 const sp = mouse.mapToGlobal(event.x, event.y)

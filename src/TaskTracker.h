@@ -24,6 +24,7 @@ public:
     QStringList runningApps() const;
     QString activeAppId() const;
     Q_INVOKABLE void closeWindows(const QString &appId);
+    Q_INVOKABLE void activateWindow(const QString &appId);
 
     Q_PROPERTY(QString activeAppId READ activeAppId NOTIFY activeAppChanged)
 

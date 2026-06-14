@@ -14,6 +14,7 @@ Item {
     id: root
 
     property string position: "bottom"
+    property bool dockVisible: true
     readonly property bool isHorizontal: position === "bottom" || position === "top"
 
     property real cursorX: -1000

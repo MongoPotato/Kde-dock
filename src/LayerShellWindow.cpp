@@ -149,9 +149,12 @@ void LayerShellWindow::setupWaylandLayerSurface()
             ni->nativeResourceForScreen("wl_output", screen()));
     }
 
+    // LAYER_BOTTOM places the dock below regular windows so that context menus
+    // and settings panels (xdg-toplevel) can appear above it. The exclusive
+    // zone still prevents tiled windows from occupying the dock area.
     m_layerSurface = zwlr_layer_shell_v1_get_layer_surface(
         m_layerShell, surface, output,
-        ZWLR_LAYER_SHELL_V1_LAYER_TOP,
+        ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM,
         "kdock");
     if (!m_layerSurface) return;
 
