@@ -15,15 +15,16 @@ import QtQuick.Controls 2.15
 Item {
     id: root
 
-    property bool dockVisible: !config.autohide
+    property bool _dockHovered: false
+    property bool dockVisible: !config.autohide || _dockHovered
 
     // ── Hover detection for auto-hide ────────────────────────────────────
     MouseArea {
         anchors.fill: parent
         hoverEnabled: true
         propagateComposedEvents: true
-        onEntered: if (config.autohide) root.dockVisible = true
-        onExited:  if (config.autohide) root.dockVisible = false
+        onEntered: root._dockHovered = true
+        onExited:  root._dockHovered = false
     }
 
     // ── Dock surface ─────────────────────────────────────────────────────
@@ -33,13 +34,16 @@ Item {
         position: config.position
 
         transform: Translate {
+            // Slide by the VISUAL dock thickness, not the full window height.
+            // The window is taller than the visual strip to allow icon overflow.
+            readonly property int baseThickness: config.iconSize + config.padding * 2
             x: (config.position === "left" || config.position === "right")
                ? (root.dockVisible ? 0
-                                   : (config.position === "left" ? -root.width : root.width))
+                                   : (config.position === "left" ? -baseThickness : baseThickness))
                : 0
             y: (config.position === "bottom" || config.position === "top")
                ? (root.dockVisible ? 0
-                                   : (config.position === "bottom" ? root.height : -root.height))
+                                   : (config.position === "bottom" ? baseThickness : -baseThickness))
                : 0
 
             Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }

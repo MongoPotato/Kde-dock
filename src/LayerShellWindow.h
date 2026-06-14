@@ -33,6 +33,14 @@ public:
     void setThickness(int px);
     int thickness() const { return m_thickness; }
 
+    // Exclusive zone is the screen space reserved from the desktop (visual strip).
+    // Thickness is the full window height (visual strip + overflow for magnification).
+    void setExclusiveZone(int px);
+    int exclusiveZone() const { return m_exclusiveZone; }
+
+    // Apply thickness + exclusive zone to the running layer surface (no-op if not yet shown).
+    void applyGeometryUpdate();
+
     void setBlurEnabled(bool enabled);
 
     // Public so the C-style Wayland registry callback can write to it
@@ -48,6 +56,7 @@ private:
 
     QString m_anchor { QStringLiteral("bottom") };
     int m_thickness = 72;
+    int m_exclusiveZone = 72;
     bool m_isWayland = false;
     bool m_shellApplied = false;
     bool m_blurEnabled = false;

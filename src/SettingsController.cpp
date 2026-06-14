@@ -44,7 +44,7 @@ void SettingsController::applyHoverLift(int px)
 
 void SettingsController::applyDockOpacity(double v)
 {
-    m_config->setBackgroundOpacity(qBound(0.1, v, 1.0));
+    m_config->setBackgroundOpacity(qBound(0.0, v, 1.0));
 }
 
 void SettingsController::applyAutohide(bool on)

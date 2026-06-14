@@ -175,8 +175,9 @@ void LayerShellWindow::setupWaylandLayerSurface()
     }
     zwlr_layer_surface_v1_set_anchor(m_layerSurface, anchorBits);
 
-    // Exclusive zone reserves screen space so maximised windows don't overlap
-    zwlr_layer_surface_v1_set_exclusive_zone(m_layerSurface, m_thickness);
+    // Exclusive zone reserves screen space so maximised windows don't overlap.
+    // Uses m_exclusiveZone (visual strip height) not m_thickness (full window height).
+    zwlr_layer_surface_v1_set_exclusive_zone(m_layerSurface, m_exclusiveZone);
 
     const bool horizontal = (m_anchor == QStringLiteral("bottom")
                           || m_anchor == QStringLiteral("top"));
@@ -238,4 +239,36 @@ void LayerShellWindow::setAnchor(const QString &anchor)
 void LayerShellWindow::setThickness(int px)
 {
     m_thickness = px;
+}
+
+void LayerShellWindow::setExclusiveZone(int px)
+{
+    m_exclusiveZone = px;
+}
+
+void LayerShellWindow::applyGeometryUpdate()
+{
+    if (!m_isWayland || !m_layerSurface) return;
+
+    QPlatformNativeInterface *ni = QGuiApplication::platformNativeInterface();
+    if (!ni) return;
+
+    auto *surface = static_cast<wl_surface *>(
+        ni->nativeResourceForWindow("wl_surface", this));
+    if (!surface) return;
+
+    zwlr_layer_surface_v1_set_exclusive_zone(m_layerSurface, m_exclusiveZone);
+
+    const bool horizontal = (m_anchor == QStringLiteral("bottom")
+                          || m_anchor == QStringLiteral("top"));
+    const uint32_t w = horizontal ? 0 : static_cast<uint32_t>(m_thickness);
+    const uint32_t h = horizontal ? static_cast<uint32_t>(m_thickness) : 0;
+    zwlr_layer_surface_v1_set_size(m_layerSurface, w, h);
+
+    wl_surface_commit(surface);
+
+    auto *display = static_cast<wl_display *>(
+        ni->nativeResourceForIntegration("wl_display"));
+    if (display)
+        wl_display_roundtrip(display);
 }

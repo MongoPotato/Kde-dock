@@ -35,8 +35,20 @@ Item {
                                  : itemColumn.implicitHeight + config.padding * 2
 
     // ── Background ───────────────────────────────────────────────────────
+    // Anchored to the dock EDGE so the background only covers the visual
+    // strip. The window is taller than the strip to allow magnified icons
+    // to overflow into the transparent space without being clipped.
     Rectangle {
-        anchors.fill: parent
+        readonly property int stripSize: config.iconSize + config.padding * 2
+
+        anchors.left:   (isHorizontal || position === "left")  ? parent.left  : undefined
+        anchors.right:  (isHorizontal || position === "right") ? parent.right : undefined
+        anchors.top:    (position === "top"    || !isHorizontal) ? parent.top    : undefined
+        anchors.bottom: (position === "bottom" || !isHorizontal) ? parent.bottom : undefined
+
+        width:  isHorizontal ? parent.width : stripSize
+        height: isHorizontal ? stripSize    : parent.height
+
         radius: config.backgroundRadius
 
         // Blend base background colour with adaptive tint when enabled
@@ -103,7 +115,11 @@ Item {
     // ── Icon layout ───────────────────────────────────────────────────────
     Row {
         id: itemRow
-        anchors.centerIn: parent
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: position === "bottom" ? parent.bottom : undefined
+        anchors.top:    position === "top"    ? parent.top    : undefined
+        anchors.bottomMargin: position === "bottom" ? config.padding : 0
+        anchors.topMargin:    position === "top"    ? config.padding : 0
         visible: isHorizontal
         spacing: config.spacing
 
@@ -118,7 +134,11 @@ Item {
 
     Column {
         id: itemColumn
-        anchors.centerIn: parent
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.left:  position === "left"  ? parent.left  : undefined
+        anchors.right: position === "right" ? parent.right : undefined
+        anchors.leftMargin:  position === "left"  ? config.padding : 0
+        anchors.rightMargin: position === "right" ? config.padding : 0
         visible: !isHorizontal
         spacing: config.spacing
 

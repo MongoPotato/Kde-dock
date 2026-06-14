@@ -79,8 +79,21 @@ int main(int argc, char *argv[])
     LayerShellWindow window;
     window.setAnchor(config.position());
 
-    const int thickness = config.iconSize() + config.padding() * 2;
-    window.setThickness(thickness);
+    // baseThickness = visual strip height (reserved screen space / exclusive zone).
+    // winThickness  = full window height: strip + overflow space for magnified/lifted icons.
+    auto computeThicknesses = [&](int &base, int &win) {
+        base = config.iconSize() + config.padding() * 2;
+        win  = qRound(config.iconSize() * config.magnifyScale())
+             + config.padding() * 2 + config.hoverLiftPx() + 8;
+        if (win < base) win = base;
+    };
+
+    {
+        int base, win;
+        computeThicknesses(base, win);
+        window.setExclusiveZone(base);
+        window.setThickness(win);
+    }
 
     // Set an initial window size so the QML root item has geometry before
     // the layer-shell configure callback fires.
@@ -88,14 +101,21 @@ int main(int argc, char *argv[])
         const QRect geom = screen->geometry();
         const bool horizontal = (config.position() == QStringLiteral("bottom")
                               || config.position() == QStringLiteral("top"));
-        window.resize(horizontal ? geom.width() : thickness,
-                      horizontal ? thickness : geom.height());
+        window.resize(horizontal ? geom.width() : window.thickness(),
+                      horizontal ? window.thickness() : geom.height());
     }
 
     // Enable blur behind if configured
     window.setBlurEnabled(config.blurEnabled());
     QObject::connect(&config, &ConfigWatcher::configChanged, &window,
-                     [&]{ window.setBlurEnabled(config.blurEnabled()); });
+                     [&]() {
+                         window.setBlurEnabled(config.blurEnabled());
+                         int base, win;
+                         computeThicknesses(base, win);
+                         window.setExclusiveZone(base);
+                         window.setThickness(win);
+                         window.applyGeometryUpdate();
+                     });
 
     // Register custom image provider so QML can use "image://kdock/<appId>"
     window.engine()->addImageProvider(QStringLiteral("kdock"), new IconProvider());
