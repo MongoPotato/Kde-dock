@@ -10,7 +10,8 @@ Item {
     id: root
 
     property string position: "bottom"
-    property bool dockVisible: true
+    property bool dockVisible:   true
+    property bool dockAnimating: false   // true while the slide-in animation runs
     readonly property bool isHorizontal: position === "bottom" || position === "top"
 
     onDockVisibleChanged: console.log("[kdock autohide] DockBar.dockVisible →", dockVisible)
@@ -104,8 +105,9 @@ Item {
         Repeater {
             model: isHorizontal ? dockModel : null
             delegate: DockItem {
-                dockBar:  root
-                position: root.position
+                dockBar:       root
+                position:      root.position
+                dockAnimating: root.dockAnimating
             }
         }
     }
@@ -123,8 +125,9 @@ Item {
         Repeater {
             model: isHorizontal ? null : dockModel
             delegate: DockItem {
-                dockBar:  root
-                position: root.position
+                dockBar:       root
+                position:      root.position
+                dockAnimating: root.dockAnimating
             }
         }
     }

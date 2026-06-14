@@ -33,21 +33,18 @@ Item {
     required property bool   isUrgent
     required property Item   dockBar
     required property string position
+    required property bool   dockAnimating
 
     property int iconVersion: 0
 
     readonly property bool isHorizontal: position === "bottom" || position === "top"
 
-    // Debug: log when running state changes so we can verify TaskTracker is working
-    onIsRunningChanged: console.log("[kdock item]", root.appId, "isRunning →", isRunning,
-                                    "windowCount:", windowCount)
-
     Connections {
         target: dockBar
         function onDockVisibleChanged() {
-            console.log("[kdock autohide] item", root.appId, "dockVisible →", dockBar.dockVisible)
             if (!dockBar.dockVisible) {
                 root.state = "normal"
+                tooltip.hide()
                 clickBounceAnim.stop()
                 iconContainer.clickBounceY = 0
             }
@@ -220,7 +217,12 @@ Item {
         onClicked: (event) => {
             if (event.button === Qt.LeftButton) {
                 clickBounceAnim.restart()
-                dockModel.activateApp(root.appId)
+                // activateApp: focus existing window, or launch if not running.
+                // Guard with typeof in case binary is older than QML.
+                if (typeof dockModel.activateApp === "function")
+                    dockModel.activateApp(root.appId)
+                else
+                    dockModel.launchApp(root.appId)
                 dockModel.clearUrgency(root.appId)
             } else {
                 const sp = mouse.mapToGlobal(event.x, event.y)
@@ -231,8 +233,12 @@ Item {
         }
 
         onEntered: {
-            root.state = "hovered"
-            tooltip.show()
+            // Don't enter hover state while the dock is sliding in — the
+            // icon is still in motion and the animation looks jerky.
+            if (!root.dockAnimating) {
+                root.state = "hovered"
+                tooltip.show()
+            }
         }
         onExited: {
             root.state = "normal"
