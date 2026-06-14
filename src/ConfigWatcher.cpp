@@ -244,13 +244,13 @@ bool ConfigWatcher::runningIndicatorVisible() const
 QString ConfigWatcher::runningIndicatorColor() const
 {
     return m_config.value(QStringLiteral("runningIndicator")).toObject()
-        .value(QStringLiteral("color")).toString(QStringLiteral("#ffffff"));
+        .value(QStringLiteral("color")).toString(QStringLiteral("#4fc3f7"));
 }
 
 int ConfigWatcher::runningIndicatorSize() const
 {
     return m_config.value(QStringLiteral("runningIndicator")).toObject()
-        .value(QStringLiteral("size")).toInt(4);
+        .value(QStringLiteral("size")).toInt(6);
 }
 
 // ── Pinned apps ────────────────────────────────────────────────────────────
@@ -397,8 +397,8 @@ void ConfigWatcher::resetToDefaults()
         {QStringLiteral("magnifyRadius"), 120},
         {QStringLiteral("runningIndicator"), QJsonObject{
             {QStringLiteral("visible"), true},
-            {QStringLiteral("color"),   QStringLiteral("#ffffff")},
-            {QStringLiteral("size"),    4},
+            {QStringLiteral("color"),   QStringLiteral("#4fc3f7")},
+            {QStringLiteral("size"),    6},
         }},
     };
     emit configChanged();

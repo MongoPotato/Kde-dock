@@ -107,12 +107,12 @@ Popup {
         RowLayout { spacing: 12; Layout.fillWidth: true
             ColumnLayout { spacing: 2
                 Text { text: "Dock opacity"; color: "white"; font.pixelSize: 13 }
-                Text { text: "10 – 100 %"; color: "#888"; font.pixelSize: 11 }
+                Text { text: "0 – 100 % (0 = fully transparent)"; color: "#888"; font.pixelSize: 11 }
             }
             Slider {
                 id: dockOpacitySlider
                 Layout.fillWidth: true
-                from: 0.1; to: 1.0; value: config.backgroundOpacity; stepSize: 0.01
+                from: 0.0; to: 1.0; value: config.backgroundOpacity; stepSize: 0.01
                 onMoved: settings.applyDockOpacity(value)
             }
             Text { text: Math.round(dockOpacitySlider.value * 100) + " %"; color: "white"; font.pixelSize: 13; Layout.minimumWidth: 52 }

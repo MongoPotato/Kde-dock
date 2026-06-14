@@ -106,12 +106,28 @@ Item {
     // verticalCenter anchor is intentionally absent: the states below
     // animate y to achieve the lift effect; anchors.verticalCenter would
     // suppress any y change made via PropertyChanges.
+    //
+    // clickBounceY is a separate transform offset so it stacks cleanly on
+    // top of the state-driven y without interfering with hover transitions.
     Item {
         id: iconContainer
         anchors.horizontalCenter: parent.horizontalCenter
         width:  root.implicitWidth
         height: root.implicitHeight
         y: 0
+
+        property real clickBounceY: 0
+        transform: Translate { y: iconContainer.clickBounceY }
+
+        SequentialAnimation {
+            id: clickBounceAnim
+            NumberAnimation { target: iconContainer; property: "clickBounceY"
+                              to: -22; duration: 110; easing.type: Easing.OutQuad }
+            NumberAnimation { target: iconContainer; property: "clickBounceY"
+                              to:   6; duration:  80; easing.type: Easing.InQuad }
+            NumberAnimation { target: iconContainer; property: "clickBounceY"
+                              to:   0; duration: 140; easing.type: Easing.OutBounce }
+        }
 
         // ── Per-icon background pill / circle / squircle ─────────────────
         Rectangle {
@@ -164,18 +180,30 @@ Item {
             }
         }
 
-        // ── Running indicator dot ────────────────────────────────────────
+        // ── Running indicator dot (top of icon, pulses gently) ──────────
         Rectangle {
+            id: runningDot
             visible: isRunning && config.runningIndicatorVisible
             color:  config.runningIndicatorColor
             width:  config.runningIndicatorSize
             height: config.runningIndicatorSize
             radius: width / 2
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.bottom: isHorizontal ? parent.bottom : undefined
-            anchors.right:  isHorizontal ? undefined      : parent.right
-            anchors.bottomMargin: isHorizontal ? 2 : 0
-            anchors.rightMargin:  isHorizontal ? 0 : 2
+
+            // Horizontal dock: centre above the icon; vertical dock: to the side
+            anchors.horizontalCenter: isHorizontal ? parent.horizontalCenter : undefined
+            anchors.verticalCenter:   isHorizontal ? undefined               : parent.verticalCenter
+            anchors.top:   isHorizontal ? parent.top : undefined
+            anchors.right: isHorizontal ? undefined  : parent.right
+            anchors.topMargin:   isHorizontal ? 3 : 0
+            anchors.rightMargin: isHorizontal ? 0 : 3
+
+            // Soft pulsing glow so the dot is easy to spot at a glance
+            SequentialAnimation on opacity {
+                running: isRunning
+                loops:   Animation.Infinite
+                NumberAnimation { from: 1.0; to: 0.4; duration: 900; easing.type: Easing.InOutSine }
+                NumberAnimation { from: 0.4; to: 1.0; duration: 900; easing.type: Easing.InOutSine }
+            }
         }
     }
 
@@ -188,6 +216,7 @@ Item {
 
         onClicked: (event) => {
             if (event.button === Qt.LeftButton) {
+                clickBounceAnim.restart()
                 dockModel.launchApp(root.appId)
                 dockModel.clearUrgency(root.appId)
             } else {
