@@ -1,22 +1,23 @@
-// TaskTracker — KWin 6 Wayland window tracking.
+// TaskTracker — KWin 6 Wayland window tracking via KWin scripting.
 //
-// KWin 6 exposes windows via:
-//   • signals windowAdded/windowRemoved/windowActivated(string uuid)
-//   • /KWin org.kde.KWin getWindowInfo(string uuid) → QVariantMap
-//   • /org/kde/KWin/Windows/{uuid} org.kde.KWin.Window activate()/close()
-//
-// For startup enumeration we introspect /org/kde/KWin/Windows to discover
-// which window objects are already registered, then call getWindowInfo for each.
+// Architecture:
+//   1. We register a DBus object (KWinBridge) at org.kde.kdock /WindowTracker.
+//   2. We write a small JavaScript file and ask KWin to load it as a script.
+//   3. The script runs inside KWin's JS engine, calls workspace.windowList()
+//      for existing windows, and connects to workspace.windowAdded/Removed/
+//      Activated for live tracking. It reports each event back via callDBus().
+//   4. For window activation we call activate() on the per-window DBus object
+//      that KWin registers at /org/kde/KWin/Windows/{uuid}.
 
 #include "TaskTracker.h"
 
-#include <QDBusConnection>
 #include <QDBusArgument>
+#include <QDBusConnection>
 #include <QDBusInterface>
 #include <QDBusMessage>
 #include <QFile>
-#include <QRegularExpression>
 #include <QStandardPaths>
+#include <QTextStream>
 
 // Extract the last dotted component as lowercase: "org.kde.konsole" → "konsole"
 static QString shortName(const QString &appId)
@@ -25,18 +26,38 @@ static QString shortName(const QString &appId)
     return dot >= 0 ? appId.mid(dot + 1).toLower() : appId.toLower();
 }
 
-// Pull a QVariantMap out of a raw DBus reply argument (handles QDBusArgument wrapping).
-static QVariantMap extractMap(const QVariant &v)
-{
-    if (v.canConvert<QVariantMap>())
-        return v.value<QVariantMap>();
-    if (v.userType() == qMetaTypeId<QDBusArgument>()) {
-        QVariantMap m;
-        v.value<QDBusArgument>() >> m;
-        return m;
+// KWin script injected into the compositor. Runs in KWin's JS engine.
+// It calls back to our process via callDBus whenever window state changes.
+static const char kWinScript[] = R"js(
+(function() {
+    var svc   = 'org.kde.kdock';
+    var path  = '/WindowTracker';
+    var iface = 'org.kde.kdock.WindowTracker';
+
+    function reportAdded(w) {
+        if (!w) return;
+        var df = (w.desktopFileName !== undefined) ? w.desktopFileName : '';
+        if (df === '') df = (w.resourceClass !== undefined) ? w.resourceClass : '';
+        if (df === '') return;
+        callDBus(svc, path, iface, 'reportWindowAdded', String(w.internalId), df);
     }
-    return {};
-}
+
+    // Enumerate windows already open when kdock starts
+    var wins = workspace.windowList ? workspace.windowList() : [];
+    for (var i = 0; i < wins.length; i++) { reportAdded(wins[i]); }
+
+    workspace.windowAdded.connect(reportAdded);
+
+    workspace.windowRemoved.connect(function(w) {
+        if (!w) return;
+        callDBus(svc, path, iface, 'reportWindowRemoved', String(w.internalId));
+    });
+
+    workspace.windowActivated.connect(function(w) {
+        callDBus(svc, path, iface, 'reportWindowActivated', w ? String(w.internalId) : '');
+    });
+})();
+)js";
 
 TaskTracker::TaskTracker(QObject *parent)
     : QObject(parent)
@@ -52,59 +73,97 @@ TaskTracker::TaskTracker(QObject *parent)
            m_kwin->isValid() ? "true" : "false",
            qPrintable(m_kwin->lastError().message()));
 
-    // KWin 6 signals carry QString UUID arguments
-    struct { const char *sig; const char *slot; } sigs[] = {
-        {"windowAdded",     SLOT(onWindowAdded(QString))},
-        {"windowRemoved",   SLOT(onWindowRemoved(QString))},
-        {"windowActivated", SLOT(onWindowActivated(QString))},
-    };
-    for (const auto &s : sigs) {
-        const bool ok = QDBusConnection::sessionBus().connect(
-            QStringLiteral("org.kde.KWin"), QStringLiteral("/KWin"),
-            QStringLiteral("org.kde.KWin"), s.sig, this, s.slot);
-        qDebug("kdock [tasktracker]: signal '%s' → connected=%s", s.sig, ok ? "YES" : "NO");
-    }
+    setupKWinScript();
 
-    // Enumerate windows that already exist before we started listening
-    const QSet<QString> existing = enumerateWindowUuids();
-    qDebug("kdock [tasktracker]: found %d existing windows at startup", (int)existing.size());
-    for (const QString &uuid : existing)
-        addWindowByUuid(uuid);
-
-    // Light poll every 2 s to resync in case a signal is missed
-    m_pollTimer.setInterval(2000);
+    // Safety-net poll: if the script hasn't delivered any windows after 3 s,
+    // retry setup. After that, back off to every 10 s.
+    m_pollTimer.setInterval(3000);
     connect(&m_pollTimer, &QTimer::timeout, this, &TaskTracker::poll);
     m_pollTimer.start();
 }
 
 TaskTracker::~TaskTracker() = default;
 
-// ── Poll: full resync ─────────────────────────────────────────────────────────
-void TaskTracker::poll()
+// ── Script setup ──────────────────────────────────────────────────────────────
+void TaskTracker::setupKWinScript()
 {
-    const QSet<QString> current = enumerateWindowUuids();
+    // ── Step 1: register bridge on session bus ────────────────────────────────
+    if (!m_bridge) {
+        m_bridge = new KWinBridge(this);
+        connect(m_bridge, &KWinBridge::windowAdded,     this, &TaskTracker::onWindowAdded);
+        connect(m_bridge, &KWinBridge::windowRemoved,   this, &TaskTracker::onWindowRemoved);
+        connect(m_bridge, &KWinBridge::windowActivated, this, &TaskTracker::onWindowActivated);
+    }
 
-    // Remove windows that have disappeared
-    for (const QString &uuid : QStringList(m_windowAppIds.keys()))
-        if (!current.contains(uuid))
-            removeWindowByUuid(uuid);
+    const bool svcOk = QDBusConnection::sessionBus()
+                           .registerService(QStringLiteral("org.kde.kdock"));
+    const bool objOk = QDBusConnection::sessionBus()
+                           .registerObject(QStringLiteral("/WindowTracker"), m_bridge,
+                                           QDBusConnection::ExportScriptableSlots);
+    qDebug("kdock [tasktracker]: DBus bridge — service=%s  object=%s",
+           svcOk ? "OK" : "FAILED (may already be registered)",
+           objOk ? "OK" : "FAILED");
 
-    // Add windows we haven't seen yet
-    for (const QString &uuid : current)
-        addWindowByUuid(uuid);
+    // ── Step 2: write the JS file ─────────────────────────────────────────────
+    const QString scriptPath = QStringLiteral("/tmp/kdock_tracker.js");
+    QFile f(scriptPath);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        qWarning("kdock [tasktracker]: cannot write KWin script to '%s'", qPrintable(scriptPath));
+        return;
+    }
+    f.write(kWinScript);
+    f.close();
+    qDebug("kdock [tasktracker]: KWin script written to '%s'", qPrintable(scriptPath));
+
+    // ── Step 3: load the script via KWin scripting interface ──────────────────
+    QDBusInterface scripting(
+        QStringLiteral("org.kde.KWin"),
+        QStringLiteral("/Scripting"),
+        QStringLiteral("org.kde.kwin.Scripting"),
+        QDBusConnection::sessionBus());
+
+    qDebug("kdock [tasktracker]: org.kde.kwin.Scripting valid=%s",
+           scripting.isValid() ? "true" : "false");
+
+    // Unload any previous instance (ignore errors)
+    scripting.call(QStringLiteral("unloadScript"), QStringLiteral("kdock-tracker"));
+
+    const QDBusMessage loadReply = scripting.call(
+        QStringLiteral("loadScript"), scriptPath, QStringLiteral("kdock-tracker"));
+
+    qDebug("kdock [tasktracker]: loadScript → type=%d  error='%s'  result='%s'",
+           (int)loadReply.type(),
+           qPrintable(loadReply.errorName()),
+           loadReply.arguments().isEmpty()
+               ? "(none)" : qPrintable(loadReply.arguments().first().toString()));
+
+    m_scriptLoaded = (loadReply.type() == QDBusMessage::ReplyMessage);
 }
 
-// ── Signal slots ──────────────────────────────────────────────────────────────
-void TaskTracker::onWindowAdded(const QString &uuid)
+// ── Poll: retry script if nothing was tracked yet ────────────────────────────
+void TaskTracker::poll()
 {
-    qDebug("kdock [tasktracker]: windowAdded uuid='%s'", qPrintable(uuid));
-    addWindowByUuid(uuid);
+    if (m_windowAppIds.isEmpty()) {
+        qDebug("kdock [tasktracker]: poll — no windows tracked yet (scriptLoaded=%s) — retrying",
+               m_scriptLoaded ? "true" : "false");
+        setupKWinScript();
+        // Back off to 10 s after the first retry
+        m_pollTimer.setInterval(10000);
+    }
+}
+
+// ── Bridge callbacks ──────────────────────────────────────────────────────────
+void TaskTracker::onWindowAdded(const QString &uuid, const QString &desktopFile)
+{
+    qDebug("kdock [tasktracker]: windowAdded uuid='%s'  desktopFile='%s'",
+           qPrintable(uuid), qPrintable(desktopFile));
+    addWindow(uuid, desktopFile);
 }
 
 void TaskTracker::onWindowRemoved(const QString &uuid)
 {
     qDebug("kdock [tasktracker]: windowRemoved uuid='%s'", qPrintable(uuid));
-    removeWindowByUuid(uuid);
+    removeWindow(uuid);
 }
 
 void TaskTracker::onWindowActivated(const QString &uuid)
@@ -118,49 +177,35 @@ void TaskTracker::onWindowActivated(const QString &uuid)
     }
 }
 
-// ── Window enumeration ────────────────────────────────────────────────────────
-// Introspect /org/kde/KWin/Windows to find all currently registered window objects.
-// Each window is a child node named after its UUID: <node name="{…}"/>.
-QSet<QString> TaskTracker::enumerateWindowUuids() const
-{
-    const QDBusMessage im = QDBusMessage::createMethodCall(
-        QStringLiteral("org.kde.KWin"),
-        QStringLiteral("/org/kde/KWin/Windows"),
-        QStringLiteral("org.freedesktop.DBus.Introspectable"),
-        QStringLiteral("Introspect"));
-    const QDBusMessage ir = QDBusConnection::sessionBus().call(im);
-
-    QSet<QString> result;
-    if (ir.type() != QDBusMessage::ReplyMessage || ir.arguments().isEmpty()) {
-        qDebug("kdock [tasktracker]: enumerateWindowUuids failed — type=%d  error='%s'",
-               (int)ir.type(), qPrintable(ir.errorMessage()));
-        return result;
-    }
-
-    const QString xml = ir.arguments().first().toString();
-    static const QRegularExpression re(QStringLiteral("<node name=\"(\\{[^}]+\\})\"/>"));
-    QRegularExpressionMatchIterator it = re.globalMatch(xml);
-    while (it.hasNext())
-        result.insert(it.next().captured(1));
-    return result;
-}
-
-// ── Per-window add / remove ───────────────────────────────────────────────────
-void TaskTracker::addWindowByUuid(const QString &uuid)
+// ── Window add / remove ───────────────────────────────────────────────────────
+void TaskTracker::addWindow(const QString &uuid, const QString &desktopFile)
 {
     if (m_windowAppIds.contains(uuid))
         return;
 
-    const QVariantMap info = getWindowInfoByUuid(uuid);
-    if (info.isEmpty())
-        return;
-
-    const QString appId = windowToAppId(info);
+    // desktopFile is already the canonical app ID (e.g. "org.kde.konsole")
+    QString appId = desktopFile.toLower();
     if (appId.isEmpty())
         return;
 
-    qDebug("kdock [tasktracker]: track uuid='%s' → appId='%s'",
-           qPrintable(uuid), qPrintable(appId));
+    // Verify against the .desktop file system; fall back to short name if needed
+    if (!appId.isEmpty()) {
+        const QStringList dataDirs = QStandardPaths::standardLocations(
+            QStandardPaths::ApplicationsLocation);
+        bool found = false;
+        for (const QString &dir : dataDirs) {
+            if (QFile::exists(dir + '/' + appId + QStringLiteral(".desktop")))
+                { found = true; break; }
+        }
+        if (!found) {
+            // Try with org.kde. prefix for bare names like "konsole"
+            for (const QString &dir : dataDirs) {
+                const QString kdeid = QStringLiteral("org.kde.") + appId;
+                if (QFile::exists(dir + '/' + kdeid + QStringLiteral(".desktop")))
+                    { appId = kdeid; found = true; break; }
+            }
+        }
+    }
 
     m_windowAppIds[uuid] = appId;
     m_windowCounts[appId] = m_windowCounts.value(appId, 0) + 1;
@@ -168,64 +213,22 @@ void TaskTracker::addWindowByUuid(const QString &uuid)
     rebuildRunningApps();
 }
 
-void TaskTracker::removeWindowByUuid(const QString &uuid)
+void TaskTracker::removeWindow(const QString &uuid)
 {
     const QString appId = m_windowAppIds.value(uuid);
     if (appId.isEmpty())
         return;
 
-    qDebug("kdock [tasktracker]: untrack uuid='%s' appId='%s'",
-           qPrintable(uuid), qPrintable(appId));
-
     m_windowAppIds.remove(uuid);
-    const int newCount = m_windowCounts.value(appId, 1) - 1;
-    if (newCount <= 0) {
+    const int n = m_windowCounts.value(appId, 1) - 1;
+    if (n <= 0) {
         m_windowCounts.remove(appId);
         emit windowCountChanged(appId, 0);
     } else {
-        m_windowCounts[appId] = newCount;
-        emit windowCountChanged(appId, newCount);
+        m_windowCounts[appId] = n;
+        emit windowCountChanged(appId, n);
     }
     rebuildRunningApps();
-}
-
-QVariantMap TaskTracker::getWindowInfoByUuid(const QString &uuid) const
-{
-    const QDBusMessage raw = m_kwin->call(QStringLiteral("getWindowInfo"), uuid);
-    if (raw.type() != QDBusMessage::ReplyMessage || raw.arguments().isEmpty())
-        return {};
-    return extractMap(raw.arguments().first());
-}
-
-// ── App ID resolution ─────────────────────────────────────────────────────────
-QString TaskTracker::windowToAppId(const QVariantMap &info) const
-{
-    // KWin 6: "desktopFile" is already the canonical .desktop stem (e.g. "org.kde.konsole")
-    const QString df = info.value(QStringLiteral("desktopFile")).toString().toLower();
-    if (!df.isEmpty())
-        return df;
-
-    // Fallback: resourceClass, then resourceName — verify against .desktop file system
-    QString cls = info.value(QStringLiteral("resourceClass")).toString();
-    if (cls.isEmpty())
-        cls = info.value(QStringLiteral("resourceName")).toString();
-    if (cls.isEmpty())
-        return {};
-
-    cls = cls.toLower();
-    const QStringList dataDirs = QStandardPaths::standardLocations(
-        QStandardPaths::ApplicationsLocation);
-    for (const QString &dir : dataDirs) {
-        if (QFile::exists(dir + '/' + cls + QStringLiteral(".desktop")))
-            return cls;
-        const QString kdeId = QStringLiteral("org.kde.") + cls;
-        if (QFile::exists(dir + '/' + kdeId + QStringLiteral(".desktop")))
-            return kdeId;
-        const QString mozId = QStringLiteral("org.mozilla.") + cls;
-        if (QFile::exists(dir + '/' + mozId + QStringLiteral(".desktop")))
-            return mozId;
-    }
-    return cls;
 }
 
 // ── Running apps ──────────────────────────────────────────────────────────────
@@ -247,7 +250,7 @@ void TaskTracker::rebuildRunningApps()
 QStringList TaskTracker::runningApps() const { return m_runningApps; }
 QString     TaskTracker::activeAppId()  const { return m_activeAppId; }
 
-// ── Window lookup (with short-name fuzzy match) ───────────────────────────────
+// ── Window lookup (fuzzy short-name match) ────────────────────────────────────
 QStringList TaskTracker::windowsForApp(const QString &appId) const
 {
     QStringList result;
@@ -282,7 +285,7 @@ void TaskTracker::activateWindow(const QString &appId)
     qDebug("kdock [activate]: uuid='%s' (%d/%d) for appId='%s'",
            qPrintable(uuid), idx, (int)uuids.size(), qPrintable(appId));
 
-    // KWin 6: each window has its own DBus object with an activate() method
+    // Each window has its own DBus object in KWin 6
     const QDBusMessage call = QDBusMessage::createMethodCall(
         QStringLiteral("org.kde.KWin"),
         QStringLiteral("/org/kde/KWin/Windows/") + uuid,
@@ -290,7 +293,7 @@ void TaskTracker::activateWindow(const QString &appId)
         QStringLiteral("activate"));
     const QDBusMessage reply = QDBusConnection::sessionBus().call(call);
     if (reply.type() == QDBusMessage::ErrorMessage)
-        qWarning("kdock [activate]: error — path='/org/kde/KWin/Windows/%s' : %s",
+        qWarning("kdock [activate]: error for uuid='%s': %s",
                  qPrintable(uuid), qPrintable(reply.errorMessage()));
 }
 
