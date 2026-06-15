@@ -12,6 +12,7 @@
 #include <QSet>
 #include <QStringList>
 #include <QTimer>
+#include <QVariantMap>
 
 class QDBusInterface;
 
@@ -40,14 +41,24 @@ signals:
 
 private slots:
     void poll();
+    // Both quint64 and qlonglong variants so DBus signals connect regardless
+    // of whether KWin emits unsigned or signed 64-bit window IDs.
     void onWindowAdded(quint64 id);
+    void onWindowAdded(qlonglong id);
     void onWindowRemoved(quint64 id);
+    void onWindowRemoved(qlonglong id);
     void onWindowActivated(quint64 id);
+    void onWindowActivated(qlonglong id);
 
 private:
     QString windowToAppId(const QVariantMap &info) const;
     void refresh();
     QList<quint64> windowsForApp(const QString &appId) const;
+    void processWindowInfo(const QVariantMap &info,
+                           QMap<quint64, QString> &windowAppIds,
+                           QMap<QString, int> &counts,
+                           QSet<QString> &urgent,
+                           bool verbose);
 
     QDBusInterface *m_kwin = nullptr;
     QTimer m_pollTimer;

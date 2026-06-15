@@ -6,6 +6,7 @@
 
 #include "TaskTracker.h"
 
+#include <QDBusArgument>
 #include <QDBusConnection>
 #include <QDBusInterface>
 #include <QDBusMessage>
@@ -29,22 +30,44 @@ static QString normaliseAppId(const QString &resourceClass)
         return {};
     QString id = resourceClass.toLower();
 
-    // Try to find a matching .desktop file for this resource class
     const QStringList dataDirs = QStandardPaths::standardLocations(QStandardPaths::ApplicationsLocation);
     for (const QString &dir : dataDirs) {
-        // Try exact match
         if (QFile::exists(dir + QChar('/') + id + QStringLiteral(".desktop")))
             return id;
-        // Try with org.kde. prefix
         const QString kdeid = QStringLiteral("org.kde.") + id;
         if (QFile::exists(dir + QChar('/') + kdeid + QStringLiteral(".desktop")))
             return kdeid;
-        // Try with org.mozilla. prefix
         const QString mozid = QStringLiteral("org.mozilla.") + id;
         if (QFile::exists(dir + QChar('/') + mozid + QStringLiteral(".desktop")))
             return mozid;
     }
     return id;
+}
+
+// Pull a QVariantMap out of a raw DBus reply argument (handles QDBusArgument wrapping).
+static QVariantMap extractMap(const QVariant &v)
+{
+    if (v.canConvert<QVariantMap>())
+        return v.value<QVariantMap>();
+    if (v.userType() == qMetaTypeId<QDBusArgument>()) {
+        QVariantMap m;
+        v.value<QDBusArgument>() >> m;
+        return m;
+    }
+    return {};
+}
+
+// Pull a QVariantList out of a raw DBus reply argument.
+static QVariantList extractList(const QVariant &v)
+{
+    if (v.canConvert<QVariantList>())
+        return v.value<QVariantList>();
+    if (v.userType() == qMetaTypeId<QDBusArgument>()) {
+        QVariantList l;
+        v.value<QDBusArgument>() >> l;
+        return l;
+    }
+    return {};
 }
 
 TaskTracker::TaskTracker(QObject *parent)
@@ -57,29 +80,46 @@ TaskTracker::TaskTracker(QObject *parent)
         QDBusConnection::sessionBus(),
         this);
 
-    // Connect to KWin window signals when available
-    QDBusConnection::sessionBus().connect(
-        QStringLiteral("org.kde.KWin"),
-        QStringLiteral("/KWin"),
-        QStringLiteral("org.kde.KWin"),
-        QStringLiteral("windowAdded"),
-        this, SLOT(onWindowAdded(quint64)));
+    qDebug("kdock [tasktracker]: KWin DBus — valid=%s  service='%s'  error='%s'",
+           m_kwin->isValid() ? "true" : "false",
+           qPrintable(m_kwin->service()),
+           qPrintable(m_kwin->lastError().message()));
 
-    QDBusConnection::sessionBus().connect(
-        QStringLiteral("org.kde.KWin"),
-        QStringLiteral("/KWin"),
-        QStringLiteral("org.kde.KWin"),
-        QStringLiteral("windowRemoved"),
-        this, SLOT(onWindowRemoved(quint64)));
+    // Dump the /KWin interface so we can see what methods KWin 6 actually exposes.
+    {
+        const QDBusMessage im = QDBusMessage::createMethodCall(
+            QStringLiteral("org.kde.KWin"), QStringLiteral("/KWin"),
+            QStringLiteral("org.freedesktop.DBus.Introspectable"),
+            QStringLiteral("Introspect"));
+        const QDBusMessage ir = QDBusConnection::sessionBus().call(im);
+        if (!ir.arguments().isEmpty()) {
+            const QString xml = ir.arguments().first().toString();
+            qDebug("kdock [tasktracker]: /KWin introspect (%d chars total, showing first 3000):\n%s",
+                   (int)xml.size(), qPrintable(xml.left(3000)));
+        } else {
+            qDebug("kdock [tasktracker]: /KWin introspect failed — type=%d  error='%s'",
+                   (int)ir.type(), qPrintable(ir.errorMessage()));
+        }
+    }
 
-    QDBusConnection::sessionBus().connect(
-        QStringLiteral("org.kde.KWin"),
-        QStringLiteral("/KWin"),
-        QStringLiteral("org.kde.KWin"),
-        QStringLiteral("windowActivated"),
-        this, SLOT(onWindowActivated(quint64)));
+    // Connect signals — KWin 6 uses qlonglong IDs; try both types.
+    struct SigEntry { const char *name; const char *slotU64; const char *slotI64; };
+    const SigEntry sigs[] = {
+        {"windowAdded",     SLOT(onWindowAdded(quint64)),     SLOT(onWindowAdded(qlonglong))},
+        {"windowRemoved",   SLOT(onWindowRemoved(quint64)),   SLOT(onWindowRemoved(qlonglong))},
+        {"windowActivated", SLOT(onWindowActivated(quint64)), SLOT(onWindowActivated(qlonglong))},
+    };
+    for (const auto &s : sigs) {
+        bool ok = QDBusConnection::sessionBus().connect(
+                      QStringLiteral("org.kde.KWin"), QStringLiteral("/KWin"),
+                      QStringLiteral("org.kde.KWin"), s.name, this, s.slotU64);
+        if (!ok)
+            ok = QDBusConnection::sessionBus().connect(
+                     QStringLiteral("org.kde.KWin"), QStringLiteral("/KWin"),
+                     QStringLiteral("org.kde.KWin"), s.name, this, s.slotI64);
+        qDebug("kdock [tasktracker]: signal '%s' → connected=%s", s.name, ok ? "YES" : "NO");
+    }
 
-    // Polling fallback for KWin versions without signals
     m_pollTimer.setInterval(kPollIntervalMs);
     connect(&m_pollTimer, &QTimer::timeout, this, &TaskTracker::poll);
     m_pollTimer.start();
@@ -89,20 +129,11 @@ TaskTracker::TaskTracker(QObject *parent)
 
 TaskTracker::~TaskTracker() = default;
 
-void TaskTracker::poll()
-{
-    refresh();
-}
-
-void TaskTracker::onWindowAdded(quint64 /*id*/)
-{
-    refresh();
-}
-
-void TaskTracker::onWindowRemoved(quint64 /*id*/)
-{
-    refresh();
-}
+void TaskTracker::poll()     { refresh(); }
+void TaskTracker::onWindowAdded(quint64)   { refresh(); }
+void TaskTracker::onWindowAdded(qlonglong) { refresh(); }
+void TaskTracker::onWindowRemoved(quint64)   { refresh(); }
+void TaskTracker::onWindowRemoved(qlonglong) { refresh(); }
 
 void TaskTracker::onWindowActivated(quint64 id)
 {
@@ -113,39 +144,117 @@ void TaskTracker::onWindowActivated(quint64 id)
     }
 }
 
-QString TaskTracker::activeAppId() const
+void TaskTracker::onWindowActivated(qlonglong id)
 {
-    return m_activeAppId;
+    onWindowActivated(static_cast<quint64>(id));
 }
 
+QString TaskTracker::activeAppId() const { return m_activeAppId; }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// refresh() — three strategies, each logged clearly so we can diagnose failures
+// ─────────────────────────────────────────────────────────────────────────────
 void TaskTracker::refresh()
 {
-    if (!m_kwin->isValid())
+    if (!m_kwin->isValid()) {
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            qDebug("kdock [tasktracker]: KWin interface not valid — cannot track windows  error='%s'",
+                   qPrintable(m_kwin->lastError().message()));
+        }
         return;
+    }
 
-    // Query KWin for all windows via the Scripting interface
-    QDBusReply<QVariantList> reply = m_kwin->call(QStringLiteral("getWindowInfo"));
+    static int refreshCount = 0;
+    const bool verbose = (++refreshCount <= 5);
 
-    QMap<QString, int> newCounts;
+    QMap<QString, int>    newCounts;
     QMap<quint64, QString> newWindowAppIds;
-    QSet<QString> newUrgent;
+    QSet<QString>         newUrgent;
+    bool                  gotAnyData = false;
 
-    if (reply.isValid()) {
-        for (const QVariant &v : reply.value()) {
-            const QVariantMap info = v.toMap();
-            const quint64 wid = info.value(QStringLiteral("id")).toULongLong();
-            const QString appId = windowToAppId(info);
-            if (!appId.isEmpty()) {
-                newWindowAppIds[wid] = appId;
-                newCounts[appId]++;
+    // ── Strategy A: getWindowInfo() no-args (KWin 5 / some KWin 6 builds) ──
+    {
+        const QDBusMessage raw = m_kwin->call(QStringLiteral("getWindowInfo"));
+        if (verbose)
+            qDebug("kdock [tasktracker]: [A] getWindowInfo() → type=%d  error='%s'  args=%d",
+                   (int)raw.type(), qPrintable(raw.errorName()),
+                   (int)raw.arguments().size());
 
-                if (info.value(QStringLiteral("demandsAttention")).toBool())
-                    newUrgent.insert(appId);
+        if (raw.type() == QDBusMessage::ReplyMessage && !raw.arguments().isEmpty()) {
+            const QVariantList windows = extractList(raw.arguments().first());
+            if (verbose)
+                qDebug("kdock [tasktracker]: [A] window list size=%d", (int)windows.size());
+            for (const QVariant &v : windows) {
+                const QVariantMap info = extractMap(v);
+                processWindowInfo(info, newWindowAppIds, newCounts, newUrgent, verbose);
+            }
+            gotAnyData = true;
+        }
+    }
+
+    // ── Strategy B: clientList() → getWindowInfo(id) per window ──────────────
+    if (!gotAnyData) {
+        const QDBusMessage clRaw = m_kwin->call(QStringLiteral("clientList"));
+        if (verbose)
+            qDebug("kdock [tasktracker]: [B] clientList() → type=%d  error='%s'  args=%d",
+                   (int)clRaw.type(), qPrintable(clRaw.errorName()),
+                   (int)clRaw.arguments().size());
+
+        if (clRaw.type() == QDBusMessage::ReplyMessage && !clRaw.arguments().isEmpty()) {
+            const QVariant &a0 = clRaw.arguments().first();
+            if (verbose)
+                qDebug("kdock [tasktracker]: [B] clientList arg0 typeName='%s'  toString='%s'",
+                       a0.typeName(), qPrintable(a0.toString().left(200)));
+
+            // Extract as list — IDs may be uint or qlonglong
+            const QVariantList ids = extractList(a0);
+            if (verbose)
+                qDebug("kdock [tasktracker]: [B] clientList returned %d IDs", (int)ids.size());
+
+            for (const QVariant &idVar : ids) {
+                const quint64 wid = idVar.toULongLong();
+                // Try getWindowInfo with uint first, then qlonglong
+                QDBusMessage wiRaw = m_kwin->call(QStringLiteral("getWindowInfo"),
+                                                   static_cast<uint>(wid));
+                if (wiRaw.type() != QDBusMessage::ReplyMessage)
+                    wiRaw = m_kwin->call(QStringLiteral("getWindowInfo"),
+                                          static_cast<qlonglong>(wid));
+
+                if (wiRaw.type() == QDBusMessage::ReplyMessage && !wiRaw.arguments().isEmpty()) {
+                    const QVariantMap info = extractMap(wiRaw.arguments().first());
+                    processWindowInfo(info, newWindowAppIds, newCounts, newUrgent, verbose);
+                    gotAnyData = true;
+                } else if (verbose) {
+                    qDebug("kdock [tasktracker]: [B] getWindowInfo(%llu) → error='%s'",
+                           (unsigned long long)wid, qPrintable(wiRaw.errorName()));
+                }
             }
         }
     }
 
-    // Emit urgent / not-urgent transitions
+    // ── Strategy C: queryWindowInfo (gets active window — limited but reveals format) ─
+    if (!gotAnyData && verbose) {
+        const QDBusMessage qwRaw = m_kwin->call(QStringLiteral("queryWindowInfo"));
+        qDebug("kdock [tasktracker]: [C] queryWindowInfo() → type=%d  error='%s'  args=%d",
+               (int)qwRaw.type(), qPrintable(qwRaw.errorName()),
+               (int)qwRaw.arguments().size());
+        if (qwRaw.type() == QDBusMessage::ReplyMessage && !qwRaw.arguments().isEmpty()) {
+            const QVariantMap info = extractMap(qwRaw.arguments().first());
+            qDebug("kdock [tasktracker]: [C] queryWindowInfo keys: [%s]",
+                   qPrintable(info.keys().join(QStringLiteral(", "))));
+            for (auto it = info.cbegin(); it != info.cend(); ++it)
+                qDebug("kdock [tasktracker]:   %s = %s",
+                       qPrintable(it.key()), qPrintable(it.value().toString()));
+        }
+    }
+
+    if (verbose)
+        qDebug("kdock [tasktracker]: refresh #%d done — trackedWindows=%d  gotAnyData=%s",
+               refreshCount, (int)newWindowAppIds.size(), gotAnyData ? "true" : "false");
+
+    // ── Emit state changes ────────────────────────────────────────────────────
     for (const QString &id : newUrgent)
         if (!m_urgentApps.contains(id)) emit windowUrgent(id);
     for (const QString &id : std::as_const(m_urgentApps))
@@ -154,7 +263,6 @@ void TaskTracker::refresh()
 
     m_windowAppIds = newWindowAppIds;
 
-    // Emit window count changes
     const QStringList allIds = (m_windowCounts.keys() + newCounts.keys());
     for (const QString &id : allIds) {
         const int oldCount = m_windowCounts.value(id, 0);
@@ -173,26 +281,46 @@ void TaskTracker::refresh()
     }
 }
 
+void TaskTracker::processWindowInfo(const QVariantMap &info,
+                                    QMap<quint64, QString> &windowAppIds,
+                                    QMap<QString, int> &counts,
+                                    QSet<QString> &urgent,
+                                    bool verbose)
+{
+    if (info.isEmpty()) return;
+
+    const quint64 wid   = info.value(QStringLiteral("id")).toULongLong();
+    const QString cls   = info.value(QStringLiteral("resourceClass")).toString();
+    const QString name  = info.value(QStringLiteral("resourceName")).toString();
+    const QString appId = windowToAppId(info);
+
+    if (verbose)
+        qDebug("kdock [tasktracker]:   window wid=%llu  resourceClass='%s'  resourceName='%s'  → appId='%s'",
+               (unsigned long long)wid, qPrintable(cls), qPrintable(name), qPrintable(appId));
+
+    if (!appId.isEmpty()) {
+        windowAppIds[wid] = appId;
+        counts[appId]++;
+        if (info.value(QStringLiteral("demandsAttention")).toBool())
+            urgent.insert(appId);
+    }
+}
+
 QString TaskTracker::windowToAppId(const QVariantMap &info) const
 {
-    // Prefer resourceClass, fall back to resourceName
     QString cls = info.value(QStringLiteral("resourceClass")).toString();
     if (cls.isEmpty())
         cls = info.value(QStringLiteral("resourceName")).toString();
     return normaliseAppId(cls);
 }
 
-QStringList TaskTracker::runningApps() const
-{
-    return m_runningApps;
-}
+QStringList TaskTracker::runningApps() const { return m_runningApps; }
 
 void TaskTracker::closeWindows(const QString &appId)
 {
     for (auto it = m_windowAppIds.cbegin(); it != m_windowAppIds.cend(); ++it) {
-        if (it.value() == appId) {
-            m_kwin->call(QStringLiteral("closeWindow"), it.key());
-        }
+        if (it.value() == appId || shortName(it.value()) == shortName(appId))
+            m_kwin->call(QStringLiteral("closeWindow"), static_cast<qlonglong>(it.key()));
     }
 }
 
@@ -216,19 +344,24 @@ void TaskTracker::activateWindow(const QString &appId)
 {
     const QList<quint64> windows = windowsForApp(appId);
     if (windows.isEmpty()) {
-        qDebug("kdock [activate]: no windows found for appId=%s (shortName=%s)  tracked: %d windows",
+        qDebug("kdock [activate]: no windows found for appId='%s' (shortName='%s')  totalTracked=%d",
                qPrintable(appId), qPrintable(shortName(appId)), (int)m_windowAppIds.size());
+        if (!m_windowAppIds.isEmpty()) {
+            QStringList all;
+            for (auto it = m_windowAppIds.cbegin(); it != m_windowAppIds.cend(); ++it)
+                all << QStringLiteral("wid=%1→'%2'").arg(it.key()).arg(it.value());
+            qDebug("kdock [activate]: tracked: [%s]", qPrintable(all.join(QStringLiteral(", "))));
+        }
         return;
     }
 
     int &idx = m_windowCycleIndex[appId];
-    if (idx >= windows.size())
-        idx = 0;
+    if (idx >= windows.size()) idx = 0;
     const int current = idx;
     idx = (idx + 1) % windows.size();
     const quint64 wid = windows.at(current);
 
-    qDebug("kdock [activate]: wid=%llu (window %d/%d) for appId=%s",
+    qDebug("kdock [activate]: wid=%llu (window %d/%d) for appId='%s'",
            (unsigned long long)wid, current + 1, (int)windows.size(), qPrintable(appId));
 
     const QDBusMessage reply = m_kwin->call(QStringLiteral("activateWindow"),
