@@ -79,6 +79,7 @@ private:
     int indexOfFuzzy(const QString &appId) const;
     bool appMatchesRunning(const QString &appId) const;
     int windowCountForRunning(const QString &appId) const;
+    void markRunning(const QString &appId);
 
     ConfigWatcher *m_config;
     TaskTracker *m_tracker = nullptr;

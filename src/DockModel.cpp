@@ -241,19 +241,43 @@ void DockModel::launchApp(const QString &appId)
     QProcess::startDetached(appId, {});
 }
 
+// Immediately mark an appId as running in the model without waiting for the
+// next TaskTracker poll cycle. This makes the running indicator appear at once
+// and ensures subsequent clicks try to activate rather than re-launch.
+void DockModel::markRunning(const QString &appId)
+{
+    if (!m_runningApps.contains(appId))
+        m_runningApps.append(appId);
+    const int idx = indexOfFuzzy(appId);
+    if (idx >= 0 && !m_entries.at(idx).running) {
+        m_entries[idx].running = true;
+        const QModelIndex mi = index(idx);
+        emit dataChanged(mi, mi, {IsRunningRole});
+    }
+}
+
 void DockModel::activateApp(const QString &appId)
 {
     const bool hasWindows = m_tracker && m_tracker->hasWindowForApp(appId);
-    qDebug("kdock [activate]: app=%s  hasWindows=%s  runningApps=[%s]",
+    const bool looksRunning = appMatchesRunning(appId);
+
+    qDebug("kdock [activate]: app=%s  hasWindows=%s  looksRunning=%s  runningApps=[%s]",
            qPrintable(appId),
            hasWindows ? "true" : "false",
+           looksRunning ? "true" : "false",
            qPrintable(m_runningApps.join(QStringLiteral(", "))));
 
     if (hasWindows) {
+        // KWin has a window ID — cycle through open windows to bring one to front
         m_tracker->activateWindow(appId);
         return;
     }
+
+    // No tracked window: launch (gtk-launch focuses existing GApplication instances).
+    // Always mark as running immediately so the indicator lights up and the next
+    // click tries activation instead of opening another duplicate window.
     launchApp(appId);
+    markRunning(appId);
 }
 
 void DockModel::closeApp(const QString &appId)
