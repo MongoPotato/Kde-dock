@@ -34,28 +34,36 @@ static const char kWinScript[] = R"js(
     var path  = '/WindowTracker';
     var iface = 'org.kde.kdock.WindowTracker';
 
+    print('kdock-tracker: script starting, callDBus type=' + typeof callDBus);
+
     function reportAdded(w) {
         if (!w) return;
         var df = (w.desktopFileName !== undefined) ? w.desktopFileName : '';
         if (df === '') df = (w.resourceClass !== undefined) ? w.resourceClass : '';
+        print('kdock-tracker: reportAdded id=' + String(w.internalId) + ' df=' + df);
         if (df === '') return;
         callDBus(svc, path, iface, 'reportWindowAdded', String(w.internalId), df);
     }
 
     // Enumerate windows already open when kdock starts
     var wins = workspace.windowList ? workspace.windowList() : [];
+    print('kdock-tracker: existing windows=' + wins.length);
     for (var i = 0; i < wins.length; i++) { reportAdded(wins[i]); }
 
     workspace.windowAdded.connect(reportAdded);
 
     workspace.windowRemoved.connect(function(w) {
         if (!w) return;
+        print('kdock-tracker: windowRemoved id=' + String(w.internalId));
         callDBus(svc, path, iface, 'reportWindowRemoved', String(w.internalId));
     });
 
     workspace.windowActivated.connect(function(w) {
+        print('kdock-tracker: windowActivated id=' + (w ? String(w.internalId) : 'null'));
         callDBus(svc, path, iface, 'reportWindowActivated', w ? String(w.internalId) : '');
     });
+
+    print('kdock-tracker: script ready, signals connected');
 })();
 )js";
 
@@ -138,6 +146,14 @@ void TaskTracker::setupKWinScript()
                ? "(none)" : qPrintable(loadReply.arguments().first().toString()));
 
     m_scriptLoaded = (loadReply.type() == QDBusMessage::ReplyMessage);
+
+    if (m_scriptLoaded) {
+        // KWin 6 requires start() after loadScript to actually execute loaded scripts.
+        const QDBusMessage startReply = scripting.call(QStringLiteral("start"));
+        qDebug("kdock [tasktracker]: start() → type=%d  error='%s'",
+               (int)startReply.type(),
+               qPrintable(startReply.errorName()));
+    }
 }
 
 // ── Poll: retry script if nothing was tracked yet ────────────────────────────
