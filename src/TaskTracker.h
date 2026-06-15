@@ -1,12 +1,18 @@
 #pragma once
 
 // TaskTracker bridges between KWin's window list and DockModel.
-// We prefer DBus signals over polling when available; polling is the
-// fallback for KWin versions that don't expose the relevant signals.
-// appId matching heuristic: lowercase resourceClass → strip ".desktop"
-// suffix → compare against known app IDs from the .desktop file index.
+//
+// KWin 6 Wayland API (confirmed via introspection):
+//   /KWin  org.kde.KWin
+//     getWindowInfo(string uuid) → a{sv}   — info for one window
+//     queryWindowInfo()          → a{sv}   — info for window under cursor
+//     signals: windowAdded(s), windowRemoved(s), windowActivated(s)
+//   /org/kde/KWin/Windows/{uuid}  org.kde.KWin.Window
+//     activate(), close(), minimize() …
+//
+// Windows are identified by UUID strings like {00f85a3f-…}.
+// The canonical app ID comes from the "desktopFile" field in getWindowInfo.
 
-#include <QList>
 #include <QMap>
 #include <QObject>
 #include <QSet>
@@ -24,7 +30,8 @@ public:
     ~TaskTracker();
 
     QStringList runningApps() const;
-    QString activeAppId() const;
+    QString     activeAppId() const;
+
     Q_INVOKABLE void closeWindows(const QString &appId);
     Q_INVOKABLE void activateWindow(const QString &appId);
 
@@ -41,31 +48,26 @@ signals:
 
 private slots:
     void poll();
-    // Both quint64 and qlonglong variants so DBus signals connect regardless
-    // of whether KWin emits unsigned or signed 64-bit window IDs.
-    void onWindowAdded(quint64 id);
-    void onWindowAdded(qlonglong id);
-    void onWindowRemoved(quint64 id);
-    void onWindowRemoved(qlonglong id);
-    void onWindowActivated(quint64 id);
-    void onWindowActivated(qlonglong id);
+    void onWindowAdded(const QString &uuid);
+    void onWindowRemoved(const QString &uuid);
+    void onWindowActivated(const QString &uuid);
 
 private:
-    QString windowToAppId(const QVariantMap &info) const;
-    void refresh();
-    QList<quint64> windowsForApp(const QString &appId) const;
-    void processWindowInfo(const QVariantMap &info,
-                           QMap<quint64, QString> &windowAppIds,
-                           QMap<QString, int> &counts,
-                           QSet<QString> &urgent,
-                           bool verbose);
+    QSet<QString>   enumerateWindowUuids() const;
+    void            addWindowByUuid(const QString &uuid);
+    void            removeWindowByUuid(const QString &uuid);
+    QVariantMap     getWindowInfoByUuid(const QString &uuid) const;
+    QString         windowToAppId(const QVariantMap &info) const;
+    void            rebuildRunningApps();
+    QStringList     windowsForApp(const QString &appId) const;
 
     QDBusInterface *m_kwin = nullptr;
-    QTimer m_pollTimer;
-    QMap<quint64, QString> m_windowAppIds;  // windowId → appId
-    QMap<QString, int> m_windowCounts;      // appId → count
-    QStringList m_runningApps;
-    QSet<QString> m_urgentApps;
-    QString m_activeAppId;
-    QMap<QString, int> m_windowCycleIndex;  // appId → next window index for cycling
+    QTimer          m_pollTimer;
+
+    QMap<QString, QString> m_windowAppIds;    // uuid  → appId
+    QMap<QString, int>     m_windowCounts;    // appId → open-window count
+    QMap<QString, int>     m_windowCycleIdx;  // appId → next cycle index
+    QStringList            m_runningApps;
+    QSet<QString>          m_urgentApps;
+    QString                m_activeAppId;
 };
