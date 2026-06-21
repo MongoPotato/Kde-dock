@@ -26,6 +26,19 @@ static QString shortName(const QString &appId)
     return dot >= 0 ? appId.mid(dot + 1).toLower() : appId.toLower();
 }
 
+// DBus object path segments may only contain [A-Za-z0-9_], but internalId is a
+// QUuid string like "{e5ffd913-...}". KWin registers per-window objects using
+// the braces/hyphens stripped (QUuid::Id128 form), so strip them before
+// building the path.
+static QString dbusPathId(const QString &uuid)
+{
+    QString id = uuid;
+    id.remove(QLatin1Char('{'));
+    id.remove(QLatin1Char('}'));
+    id.remove(QLatin1Char('-'));
+    return id;
+}
+
 // KWin script injected into the compositor. Runs in KWin's JS engine.
 // It calls back to our process via callDBus whenever window state changes.
 static const char kWinScript[] = R"js(
@@ -204,6 +217,10 @@ void TaskTracker::addWindow(const QString &uuid, const QString &desktopFile)
     if (appId.isEmpty())
         return;
 
+    // Don't track our own dock surface as a running app.
+    if (shortName(appId) == QStringLiteral("kdock"))
+        return;
+
     // Verify against the .desktop file system; fall back to short name if needed
     if (!appId.isEmpty()) {
         const QStringList dataDirs = QStandardPaths::standardLocations(
@@ -304,7 +321,7 @@ void TaskTracker::activateWindow(const QString &appId)
     // Each window has its own DBus object in KWin 6
     const QDBusMessage call = QDBusMessage::createMethodCall(
         QStringLiteral("org.kde.KWin"),
-        QStringLiteral("/org/kde/KWin/Windows/") + uuid,
+        QStringLiteral("/org/kde/KWin/Windows/") + dbusPathId(uuid),
         QStringLiteral("org.kde.KWin.Window"),
         QStringLiteral("activate"));
     const QDBusMessage reply = QDBusConnection::sessionBus().call(call);
@@ -318,7 +335,7 @@ void TaskTracker::closeWindows(const QString &appId)
     for (const QString &uuid : windowsForApp(appId)) {
         const QDBusMessage call = QDBusMessage::createMethodCall(
             QStringLiteral("org.kde.KWin"),
-            QStringLiteral("/org/kde/KWin/Windows/") + uuid,
+            QStringLiteral("/org/kde/KWin/Windows/") + dbusPathId(uuid),
             QStringLiteral("org.kde.KWin.Window"),
             QStringLiteral("close"));
         QDBusConnection::sessionBus().call(call);
