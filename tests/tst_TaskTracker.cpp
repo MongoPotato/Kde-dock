@@ -1,8 +1,7 @@
-// Smoke test for TaskTracker: it now binds the plasma-window-management
-// Wayland protocol directly (no DBus mocking possible — there is no DBus
-// involved at all). Without a real compositor advertising that global,
-// TaskTracker should simply detect no Wayland window manager and report no
-// running apps, without crashing.
+// Smoke test for TaskTracker: it drives KWin's scripting engine over DBus
+// (org.kde.kwin.Scripting). Without a real KWin session bus to talk to, the
+// DBus calls simply fail/return invalid, and TaskTracker should degrade to
+// reporting no running apps and treating actions as no-ops, without crashing.
 
 #include <QtTest>
 

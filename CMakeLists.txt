@@ -40,19 +40,24 @@ set(SOURCES
 
 add_executable(kdock ${SOURCES})
 
-# Generate Wayland client code from the layer-shell and plasma-window-management
-# protocol XMLs. Must be called after add_executable so the target exists.
+# Generate Wayland client code from the layer-shell protocol XML. Must be
+# called after add_executable so the target exists.
+#
+# Window management (activate/close) does NOT use a Wayland protocol:
+# org_kde_plasma_window_management is not advertised to ordinary clients on
+# KWin 6 (confirmed empirically — it's restricted to the shell), and there is
+# no public foreign-toplevel protocol either. TaskTracker instead drives KWin's
+# own scripting engine (org.kde.kwin.Scripting over DBus), which runs inside
+# KWin and isn't subject to that restriction.
 qt6_generate_wayland_protocol_client_sources(kdock
     FILES
         ${CMAKE_SOURCE_DIR}/data/wlr-layer-shell-unstable-v1.xml
-        ${CMAKE_SOURCE_DIR}/data/plasma-window-management.xml
 )
 
 # The generator produces a .c file with wl_interface struct definitions that
 # must be compiled separately — it is not automatically added to the target.
 set(PROTOCOL_C_FILES
     "${CMAKE_CURRENT_BINARY_DIR}/wayland-wlr-layer-shell-unstable-v1-protocol.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/wayland-plasma-window-management-protocol.c"
 )
 set_source_files_properties(${PROTOCOL_C_FILES} PROPERTIES GENERATED TRUE)
 target_sources(kdock PRIVATE ${PROTOCOL_C_FILES})

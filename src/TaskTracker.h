@@ -1,25 +1,60 @@
 #pragma once
 
-// TaskTracker: KDE Plasma window tracking and control via the
-// plasma-window-management Wayland protocol (org_kde_plasma_window_management).
+// TaskTracker: KDE Plasma window tracking and control via KWin's own
+// JavaScript scripting engine.
 //
-// KWin 6's DBus interface (org.kde.KWin at /KWin) has no per-window
-// activate/close mechanism — confirmed via a full Introspect dump, which
-// lists only desktop-level methods (killWindow is an interactive
-// cursor-pick action, getWindowInfo is read-only; there is no
-// /org/kde/KWin/Windows/<id> object at any path). plasma-window-management
-// is KDE's purpose-built Wayland protocol for exactly this: each mapped
-// window is bound as its own Wayland object (org_kde_plasma_window)
-// exposing set_state()/close() requests and app_id_changed/state_changed/
-// unmapped events — entirely over Wayland, no DBus involved.
+// Two protocol-level approaches were tried and ruled out before this one:
+//  - org.kde.KWin's DBus interface (/KWin) has no per-window activate/close
+//    mechanism at all (confirmed via a full Introspect dump).
+//  - The plasma-window-management Wayland protocol
+//    (org_kde_plasma_window_management) is not even advertised to ordinary
+//    Wayland clients on KWin 6 — it's restricted to the shell — confirmed by
+//    dumping every registry global the compositor offers.
+//
+// KWin scripts run *inside* KWin itself (loaded via org.kde.kwin.Scripting
+// over DBus), so they aren't subject to either restriction: they have full
+// access to workspace.windowList()/windowAdded/windowRemoved/windowActivated
+// for tracking, and to workspace.activeWindow = window / window.closeWindow()
+// for control. We load one persistent script for live tracking, and execute
+// small one-shot scripts (load → start → unload) to perform activate/close,
+// referencing windows by the same internalId already used for tracking.
 
-#include <QList>
 #include <QMap>
 #include <QObject>
 #include <QSet>
 #include <QStringList>
+#include <QTimer>
 
-struct wl_registry;
+class QDBusInterface;
+
+// Minimal QObject registered on the session bus as org.kde.kdock /WindowTracker.
+// The persistent KWin tracking script calls its Q_SCRIPTABLE slots to report
+// window events.
+class KWinBridge : public QObject {
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.kde.kdock.WindowTracker")
+public:
+    explicit KWinBridge(QObject *parent = nullptr) : QObject(parent) {}
+
+public slots:
+    Q_SCRIPTABLE void reportWindowAdded(const QString &uuid, const QString &desktopFile)
+    { emit windowAdded(uuid, desktopFile); }
+
+    Q_SCRIPTABLE void reportWindowRemoved(const QString &uuid)
+    { emit windowRemoved(uuid); }
+
+    Q_SCRIPTABLE void reportWindowActivated(const QString &uuid)
+    { emit windowActivated(uuid); }
+
+    Q_SCRIPTABLE void reportWindowUrgent(const QString &uuid, bool urgent)
+    { emit windowUrgentChanged(uuid, urgent); }
+
+signals:
+    void windowAdded(const QString &uuid, const QString &desktopFile);
+    void windowRemoved(const QString &uuid);
+    void windowActivated(const QString &uuid);
+    void windowUrgentChanged(const QString &uuid, bool urgent);
+};
 
 class TaskTracker : public QObject {
     Q_OBJECT
@@ -45,34 +80,31 @@ signals:
     void windowCountChanged(const QString &appId, int count);
     void activeAppChanged(const QString &appId);
 
+private slots:
+    void poll();
+    void onWindowAdded(const QString &uuid, const QString &desktopFile);
+    void onWindowRemoved(const QString &uuid);
+    void onWindowActivated(const QString &uuid);
+    void onWindowUrgentChanged(const QString &uuid, bool urgent);
+
 private:
-    // Defined in TaskTracker.cpp — wrap the generated QtWayland:: classes.
-    class PlasmaWindowManagement;
-    class PlasmaWindow;
-    friend class PlasmaWindowManagement;
-    friend class PlasmaWindow;
+    void        setupKWinScript();
+    void        runKWinSnippet(const QString &jsBody);
+    void        addWindow(const QString &uuid, const QString &desktopFile);
+    void        removeWindow(const QString &uuid);
+    void        rebuildRunningApps();
+    QStringList windowsForApp(const QString &appId) const;
 
-    static void handleRegistryGlobal(void *data, wl_registry *registry,
-                                      uint32_t name, const char *interface, uint32_t version);
-    static void handleRegistryGlobalRemove(void *data, wl_registry *registry, uint32_t name);
+    QDBusInterface *m_scripting = nullptr;
+    KWinBridge     *m_bridge    = nullptr;
+    QTimer          m_pollTimer;
+    bool            m_scriptLoaded  = false;
+    int             m_actionCounter = 0;
 
-    void detectWayland();
-    void registerWindow(PlasmaWindow *window, const QString &uuid);
-    void onWindowAppIdChanged(PlasmaWindow *window);
-    void onWindowStateChanged(PlasmaWindow *window);
-    void onWindowUnmapped(PlasmaWindow *window);
-
-    void rebuildRunningApps();
-    void refreshActiveAndUrgent();
-    QList<PlasmaWindow *> windowsForApp(const QString &appId) const;
-
-    PlasmaWindowManagement *m_windowManagement = nullptr;
-    bool m_isWayland = false;
-
-    QMap<QString, PlasmaWindow *> m_windows;       // uuid    → window
-    QMap<QString, int>            m_windowCounts;  // appId   → open-window count
-    QMap<QString, int>            m_windowCycleIdx; // appId  → next cycle index
-    QStringList                   m_runningApps;
-    QSet<QString>                 m_urgentApps;
-    QString                       m_activeAppId;
+    QMap<QString, QString> m_windowAppIds;   // uuid  → appId
+    QMap<QString, int>     m_windowCounts;   // appId → open-window count
+    QMap<QString, int>     m_windowCycleIdx; // appId → next cycle index
+    QStringList            m_runningApps;
+    QSet<QString>          m_urgentApps;     // uuids currently demanding attention
+    QString                m_activeAppId;
 };
