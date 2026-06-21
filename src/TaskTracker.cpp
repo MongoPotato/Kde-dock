@@ -94,6 +94,24 @@ TaskTracker::TaskTracker(QObject *parent)
            m_kwin->isValid() ? "true" : "false",
            qPrintable(m_kwin->lastError().message()));
 
+    // One-time full introspection dump of /KWin: lists every method AND every
+    // child object node, which tells us definitively whether per-window
+    // objects exist and what they're actually named.
+    {
+        const QDBusMessage call = QDBusMessage::createMethodCall(
+            QStringLiteral("org.kde.KWin"), QStringLiteral("/KWin"),
+            QStringLiteral("org.freedesktop.DBus.Introspectable"),
+            QStringLiteral("Introspect"));
+        const QDBusMessage reply = QDBusConnection::sessionBus().call(call);
+        if (reply.type() == QDBusMessage::ReplyMessage && !reply.arguments().isEmpty()) {
+            qDebug("kdock [probe]: /KWin Introspect XML:\n%s",
+                   qPrintable(reply.arguments().first().toString()));
+        } else {
+            qDebug("kdock [probe]: /KWin Introspect failed: %s",
+                   qPrintable(reply.errorMessage()));
+        }
+    }
+
     setupKWinScript();
 
     // Safety-net poll: if the script hasn't delivered any windows after 3 s,
@@ -300,6 +318,58 @@ bool TaskTracker::hasWindowForApp(const QString &appId) const
     return !windowsForApp(appId).isEmpty();
 }
 
+// Dump getWindowInfo(uuid) on /KWin so we can see what fields KWin actually
+// reports for a window — used to hunt for the correct per-window DBus path.
+static void dumpWindowInfo(QDBusInterface *kwin, const QString &uuid)
+{
+    if (!kwin) return;
+    const QDBusMessage reply = kwin->call(QStringLiteral("getWindowInfo"), uuid);
+    if (reply.type() != QDBusMessage::ReplyMessage || reply.arguments().isEmpty()) {
+        qDebug("kdock [probe]: getWindowInfo('%s') → type=%d error='%s'",
+               qPrintable(uuid), (int)reply.type(), qPrintable(reply.errorMessage()));
+        return;
+    }
+    QVariantMap map;
+    const QVariant v = reply.arguments().first();
+    if (v.canConvert<QDBusArgument>())
+        v.value<QDBusArgument>() >> map;
+    else
+        map = v.toMap();
+
+    qDebug("kdock [probe]: getWindowInfo('%s') → %d keys", qPrintable(uuid), (int)map.size());
+    for (auto it = map.cbegin(); it != map.cend(); ++it)
+        qDebug("kdock [probe]:   %s = %s", qPrintable(it.key()), qPrintable(it.value().toString()));
+}
+
+// Try several plausible (service, path, interface) combinations for the
+// per-window object and report which ones respond to Introspect. Returns the
+// first path that answers, or an empty string if none do.
+static QString probeWindowObjectPath(const QString &uuidBraced, const QString &idHex)
+{
+    const QStringList candidates = {
+        QStringLiteral("/org/kde/KWin/Windows/") + idHex,
+        QStringLiteral("/org/kde/KWin/Window/") + idHex,
+        QStringLiteral("/KWin/Windows/") + idHex,
+        QStringLiteral("/org/kde/KWin/Windows/") + uuidBraced,
+        QStringLiteral("/windows/") + idHex,
+    };
+
+    for (const QString &path : candidates) {
+        QDBusMessage call = QDBusMessage::createMethodCall(
+            QStringLiteral("org.kde.KWin"), path,
+            QStringLiteral("org.freedesktop.DBus.Introspectable"),
+            QStringLiteral("Introspect"));
+        const QDBusMessage reply = QDBusConnection::sessionBus().call(call);
+        const bool ok = (reply.type() == QDBusMessage::ReplyMessage);
+        qDebug("kdock [probe]: Introspect '%s' → %s%s",
+               qPrintable(path), ok ? "OK" : "FAIL",
+               ok ? "" : qPrintable(QStringLiteral(" (") + reply.errorMessage() + QStringLiteral(")")));
+        if (ok)
+            return path;
+    }
+    return {};
+}
+
 // ── Window actions ────────────────────────────────────────────────────────────
 void TaskTracker::activateWindow(const QString &appId)
 {
@@ -318,26 +388,45 @@ void TaskTracker::activateWindow(const QString &appId)
     qDebug("kdock [activate]: uuid='%s' (%d/%d) for appId='%s'",
            qPrintable(uuid), idx, (int)uuids.size(), qPrintable(appId));
 
-    // Each window has its own DBus object in KWin 6
+    dumpWindowInfo(m_kwin, uuid);
+    const QString foundPath = probeWindowObjectPath(uuid, dbusPathId(uuid));
+
+    if (foundPath.isEmpty()) {
+        qWarning("kdock [activate]: no per-window DBus object found for uuid='%s' — "
+                  "see kdock [probe] lines above for what KWin actually exposes",
+                  qPrintable(uuid));
+        return;
+    }
+
     const QDBusMessage call = QDBusMessage::createMethodCall(
-        QStringLiteral("org.kde.KWin"),
-        QStringLiteral("/org/kde/KWin/Windows/") + dbusPathId(uuid),
+        QStringLiteral("org.kde.KWin"), foundPath,
         QStringLiteral("org.kde.KWin.Window"),
         QStringLiteral("activate"));
     const QDBusMessage reply = QDBusConnection::sessionBus().call(call);
     if (reply.type() == QDBusMessage::ErrorMessage)
-        qWarning("kdock [activate]: error for uuid='%s': %s",
-                 qPrintable(uuid), qPrintable(reply.errorMessage()));
+        qWarning("kdock [activate]: error for uuid='%s' path='%s': %s",
+                 qPrintable(uuid), qPrintable(foundPath), qPrintable(reply.errorMessage()));
+    else
+        qDebug("kdock [activate]: success — uuid='%s' path='%s'",
+               qPrintable(uuid), qPrintable(foundPath));
 }
 
 void TaskTracker::closeWindows(const QString &appId)
 {
     for (const QString &uuid : windowsForApp(appId)) {
+        const QString foundPath = probeWindowObjectPath(uuid, dbusPathId(uuid));
+        if (foundPath.isEmpty()) {
+            qWarning("kdock [close]: no per-window DBus object found for uuid='%s'",
+                      qPrintable(uuid));
+            continue;
+        }
         const QDBusMessage call = QDBusMessage::createMethodCall(
-            QStringLiteral("org.kde.KWin"),
-            QStringLiteral("/org/kde/KWin/Windows/") + dbusPathId(uuid),
+            QStringLiteral("org.kde.KWin"), foundPath,
             QStringLiteral("org.kde.KWin.Window"),
             QStringLiteral("close"));
-        QDBusConnection::sessionBus().call(call);
+        const QDBusMessage reply = QDBusConnection::sessionBus().call(call);
+        if (reply.type() == QDBusMessage::ErrorMessage)
+            qWarning("kdock [close]: error for uuid='%s' path='%s': %s",
+                     qPrintable(uuid), qPrintable(foundPath), qPrintable(reply.errorMessage()));
     }
 }
