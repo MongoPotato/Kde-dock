@@ -91,7 +91,9 @@ int main(int argc, char *argv[])
     {
         int base, win;
         computeThicknesses(base, win);
-        window.setExclusiveZone(base);
+        // Auto-hide reserves no screen space — the dock floats over whatever
+        // is underneath instead of permanently carving out the edge.
+        window.setExclusiveZone(config.autohide() ? 0 : base);
         window.setThickness(win);
     }
 
@@ -112,7 +114,7 @@ int main(int argc, char *argv[])
                          window.setBlurEnabled(config.blurEnabled());
                          int base, win;
                          computeThicknesses(base, win);
-                         window.setExclusiveZone(base);
+                         window.setExclusiveZone(config.autohide() ? 0 : base);
                          window.setThickness(win);
                          window.applyGeometryUpdate();
                      });
@@ -135,6 +137,7 @@ int main(int argc, char *argv[])
     ctx->setContextProperty(QStringLiteral("settings"),          &settingsController);
     ctx->setContextProperty(QStringLiteral("iconThemeDetector"), &iconThemeDetector);
     ctx->setContextProperty(QStringLiteral("appLibrary"),        &appLibrary);
+    ctx->setContextProperty(QStringLiteral("dockWindow"),        &window);
 
     // Resolve QML — search in order: installed path, next to exe, CWD
     const QString exeDir = QCoreApplication::applicationDirPath();

@@ -8,6 +8,7 @@
 //   taskTracker         → TaskTracker*
 //   iconThemeDetector   → IconThemeDetector*
 //   appLibrary          → AppLibrary*
+//   dockWindow          → LayerShellWindow*
 
 import QtQuick 2.15
 import QtQuick.Controls 2.15
@@ -20,6 +21,13 @@ Item {
     property bool _dockAnimating: false
     property bool dockVisible:    !config.autohide || _dockHovered
 
+    Component.onCompleted: {
+        // Match the real Wayland surface to the initial visibility so a
+        // dock that starts auto-hidden doesn't block the screen edge.
+        if (typeof dockWindow !== "undefined")
+            dockWindow.setRevealed(root.dockVisible)
+    }
+
     onDockVisibleChanged: {
         console.log("[kdock autohide] dockVisible →", dockVisible,
                     "  autohide:", config.autohide, "  _dockHovered:", _dockHovered)
@@ -27,8 +35,15 @@ Item {
             // Lock out hover-on-icon animations while the dock slides in
             root._dockAnimating = true
             animDoneTimer.restart()
+            hideShrinkTimer.stop()
+            // Grow the real surface back to full size immediately so the
+            // icons have somewhere to land before the slide-in finishes.
+            if (typeof dockWindow !== "undefined") dockWindow.setRevealed(true)
         } else {
             hideTimer.stop()
+            // Wait for the slide-out animation to finish before shrinking the
+            // real surface — shrinking too early would clip the dock mid-animation.
+            hideShrinkTimer.restart()
         }
     }
 
@@ -54,20 +69,34 @@ Item {
         }
     }
 
-    // ── Hover detection for auto-hide ─────────────────────────────────────
-    // Full-window area so the cursor touches the screen edge to reveal.
-    MouseArea {
-        anchors.fill: parent
-        hoverEnabled: true
-        propagateComposedEvents: true
-        onEntered: {
-            console.log("[kdock autohide] window ENTERED")
-            hideTimer.stop()
-            root._dockHovered = true
+    // Shrink the real Wayland surface to a reveal-strip once the 220ms
+    // slide-out transform has had time to finish, so the surface itself
+    // never visibly snaps out from under the still-animating content.
+    Timer {
+        id: hideShrinkTimer
+        interval: 230
+        repeat:   false
+        onTriggered: {
+            if (typeof dockWindow !== "undefined") dockWindow.setRevealed(false)
         }
-        onExited: {
-            console.log("[kdock autohide] window EXITED")
-            if (config.autohide) hideTimer.restart()
+    }
+
+    // ── Hover detection for auto-hide ─────────────────────────────────────
+    // HoverHandler (not MouseArea) so it doesn't compete for exclusive hover
+    // ownership with the per-icon MouseAreas in DockItem — a plain MouseArea
+    // here would get spurious Exited/Entered toggles every time the cursor
+    // crossed onto/off of an icon, making the auto-hide dock flicker.
+    HoverHandler {
+        id: autohideHover
+        onHoveredChanged: {
+            if (hovered) {
+                console.log("[kdock autohide] window ENTERED")
+                hideTimer.stop()
+                root._dockHovered = true
+            } else {
+                console.log("[kdock autohide] window EXITED")
+                if (config.autohide) hideTimer.restart()
+            }
         }
     }
 

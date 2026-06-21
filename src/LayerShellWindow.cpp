@@ -18,6 +18,10 @@
 
 #include <wayland-client.h>
 
+// Surface thickness while auto-hidden: thin enough to stay out of the way,
+// thick enough for the compositor to still deliver the hover that reveals it.
+static constexpr int kRevealStripPx = 2;
+
 // ── Wayland registry callbacks ─────────────────────────────────────────────
 
 static void registryGlobal(void *data, wl_registry *registry,
@@ -262,10 +266,11 @@ void LayerShellWindow::applyGeometryUpdate()
 
     zwlr_layer_surface_v1_set_exclusive_zone(m_layerSurface, m_exclusiveZone);
 
+    const int thickness = m_revealed ? m_thickness : kRevealStripPx;
     const bool horizontal = (m_anchor == QStringLiteral("bottom")
                           || m_anchor == QStringLiteral("top"));
-    const uint32_t w = horizontal ? 0 : static_cast<uint32_t>(m_thickness);
-    const uint32_t h = horizontal ? static_cast<uint32_t>(m_thickness) : 0;
+    const uint32_t w = horizontal ? 0 : static_cast<uint32_t>(thickness);
+    const uint32_t h = horizontal ? static_cast<uint32_t>(thickness) : 0;
     zwlr_layer_surface_v1_set_size(m_layerSurface, w, h);
 
     wl_surface_commit(surface);
@@ -274,4 +279,11 @@ void LayerShellWindow::applyGeometryUpdate()
         ni->nativeResourceForIntegration("wl_display"));
     if (display)
         wl_display_roundtrip(display);
+}
+
+void LayerShellWindow::setRevealed(bool revealed)
+{
+    if (m_revealed == revealed) return;
+    m_revealed = revealed;
+    applyGeometryUpdate();
 }

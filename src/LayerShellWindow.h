@@ -41,6 +41,14 @@ public:
     // Apply thickness + exclusive zone to the running layer surface (no-op if not yet shown).
     void applyGeometryUpdate();
 
+    // Shrinks the real Wayland surface down to a thin reveal-strip at the
+    // anchored edge when auto-hidden (revealed=false), or restores it to the
+    // full configured thickness (revealed=true). Unlike the QML-side slide
+    // transform — which only moves the visual content — this resizes the
+    // actual surface/exclusive zone so the screen edge isn't blocked while hidden.
+    Q_INVOKABLE void setRevealed(bool revealed);
+    bool revealed() const { return m_revealed; }
+
     void setBlurEnabled(bool enabled);
 
     // Public so the C-style Wayland registry callback can write to it
@@ -60,6 +68,7 @@ private:
     bool m_isWayland = false;
     bool m_shellApplied = false;
     bool m_blurEnabled = false;
+    bool m_revealed = true;
 
     zwlr_layer_surface_v1 *m_layerSurface = nullptr;
 };
