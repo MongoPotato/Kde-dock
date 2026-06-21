@@ -59,18 +59,22 @@ public:
 protected:
     void org_kde_plasma_window_app_id_changed(const QString &app_id) override
     {
+        qDebug("kdock [win]: uuid='%s' app_id_changed → '%s'", qPrintable(m_uuid), qPrintable(app_id));
         m_appId = app_id;
         m_tracker->onWindowAppIdChanged(this);
     }
 
     void org_kde_plasma_window_state_changed(uint32_t flags) override
     {
+        qDebug("kdock [win]: uuid='%s' appId='%s' state_changed → 0x%x",
+               qPrintable(m_uuid), qPrintable(m_appId), flags);
         m_state = flags;
         m_tracker->onWindowStateChanged(this);
     }
 
     void org_kde_plasma_window_unmapped() override
     {
+        qDebug("kdock [win]: uuid='%s' appId='%s' unmapped", qPrintable(m_uuid), qPrintable(m_appId));
         m_tracker->onWindowUnmapped(this);
         delete this;
     }
@@ -93,13 +97,23 @@ public:
     {}
 
 protected:
+    void org_kde_plasma_window_management_window(uint32_t id) override
+    {
+        qDebug("kdock [wm]: window(id=%u) event (deprecated, no uuid — ignored)", id);
+    }
+
     void org_kde_plasma_window_management_window_with_uuid(uint32_t id, const QString &uuid) override
     {
-        Q_UNUSED(id);
-        if (uuid.isEmpty() || m_tracker->m_windows.contains(uuid))
+        qDebug("kdock [wm]: window_with_uuid(id=%u, uuid='%s')", id, qPrintable(uuid));
+
+        if (uuid.isEmpty() || m_tracker->m_windows.contains(uuid)) {
+            qDebug("kdock [wm]: skipping uuid='%s' (empty or already tracked)", qPrintable(uuid));
             return;
+        }
 
         ::org_kde_plasma_window *rawWindow = get_window_by_uuid(uuid);
+        qDebug("kdock [wm]: get_window_by_uuid('%s') → %s",
+               qPrintable(uuid), rawWindow ? "object" : "NULL");
         if (!rawWindow)
             return;
 
@@ -116,6 +130,13 @@ void TaskTracker::handleRegistryGlobal(void *data, wl_registry *registry,
                                         uint32_t name, const char *interface, uint32_t version)
 {
     auto *self = static_cast<TaskTracker *>(data);
+
+    // Log every global the compositor advertises so we can confirm whether
+    // org_kde_plasma_window_management is exposed at all in this session,
+    // and at what version, rather than guessing.
+    qDebug("kdock [registry]: global name=%u interface='%s' version=%u",
+           name, interface, version);
+
     if (strcmp(interface, org_kde_plasma_window_management_interface.name) == 0) {
         self->m_windowManagement = new PlasmaWindowManagement(
             self, registry, name, static_cast<int>(qMin(version, 16u)));
@@ -143,7 +164,16 @@ void TaskTracker::detectWayland()
 
     wl_registry *registry = wl_display_get_registry(display);
     wl_registry_add_listener(registry, &registryListener, this);
+    // First roundtrip: discover globals and send the bind request for
+    // org_kde_plasma_window_management (triggered from handleRegistryGlobal,
+    // which runs synchronously while dispatching this roundtrip's events).
     wl_display_roundtrip(display);
+    // Second roundtrip: the server only emits window_with_uuid for
+    // already-mapped windows *after* it has processed our bind request,
+    // which happens after the first roundtrip's sync point. Without this,
+    // windows open before the dock starts are silently never reported.
+    if (m_windowManagement)
+        wl_display_roundtrip(display);
 }
 
 TaskTracker::TaskTracker(QObject *parent)
