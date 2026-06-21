@@ -411,3 +411,29 @@ void TaskTracker::closeWindows(const QString &appId)
 
     runKWinSnippet(js);
 }
+
+void TaskTracker::minimizeWindow(const QString &appId)
+{
+    const QStringList uuids = windowsForApp(appId);
+    qDebug("kdock [minimize]: minimizing %d window(s) for appId='%s'",
+           (int)uuids.size(), qPrintable(appId));
+    if (uuids.isEmpty())
+        return;
+
+    QStringList quoted;
+    for (const QString &uuid : uuids)
+        quoted << QStringLiteral("'%1'").arg(uuid);
+
+    const QString js = QStringLiteral(
+        "(function() {"
+        "  var ids = [%1];"
+        "  var wins = workspace.windowList();"
+        "  for (var i = 0; i < wins.length; i++) {"
+        "    if (ids.indexOf(String(wins[i].internalId)) !== -1) {"
+        "      wins[i].minimized = true;"
+        "    }"
+        "  }"
+        "})();").arg(quoted.join(QStringLiteral(",")));
+
+    runKWinSnippet(js);
+}

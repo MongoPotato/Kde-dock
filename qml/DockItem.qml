@@ -46,7 +46,10 @@ Item {
                 root.state = "normal"
                 tooltip.hide()
                 clickBounceAnim.stop()
+                cycleBounceAnim.stop()
+                minimizeBounceAnim.stop()
                 iconContainer.clickBounceY = 0
+                iconContainer.scale = 1.0
             }
         }
     }
@@ -116,6 +119,7 @@ Item {
         property real clickBounceY: 0
         transform: Translate { y: iconContainer.clickBounceY }
 
+        // Launching a brand-new instance: a tall, energetic bounce.
         SequentialAnimation {
             id: clickBounceAnim
             NumberAnimation { target: iconContainer; property: "clickBounceY"
@@ -124,6 +128,26 @@ Item {
                               to:   6; duration:  80; easing.type: Easing.InQuad }
             NumberAnimation { target: iconContainer; property: "clickBounceY"
                               to:   0; duration: 140; easing.type: Easing.OutBounce }
+        }
+
+        // Cycling/raising an already-open window: a quick scale pop, no
+        // vertical movement, so it reads as "switch to" rather than "open".
+        SequentialAnimation {
+            id: cycleBounceAnim
+            NumberAnimation { target: iconContainer; property: "scale"
+                              to: 1.18; duration:  90; easing.type: Easing.OutQuad }
+            NumberAnimation { target: iconContainer; property: "scale"
+                              to: 1.0;  duration: 140; easing.type: Easing.OutBack }
+        }
+
+        // Minimizing the single focused window: a small dip down, the
+        // inverse feel of cycling, suggesting the window tucking away.
+        SequentialAnimation {
+            id: minimizeBounceAnim
+            NumberAnimation { target: iconContainer; property: "scale"
+                              to: 0.82; duration: 110; easing.type: Easing.InQuad }
+            NumberAnimation { target: iconContainer; property: "scale"
+                              to: 1.0;  duration: 160; easing.type: Easing.OutBack }
         }
 
         // ── Per-icon background pill / circle / squircle ─────────────────
@@ -212,18 +236,33 @@ Item {
         id: mouse
         anchors.fill: parent
         hoverEnabled: true
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
 
         onClicked: (event) => {
             if (event.button === Qt.LeftButton) {
-                clickBounceAnim.restart()
-                // activateApp: focus existing window, or launch if not running.
-                // Guard with typeof in case binary is older than QML.
+                // activateApp: focus existing window, cycle through several,
+                // minimize the single already-focused one, or launch if not
+                // running — and reports back which one it did so the right
+                // feedback animation plays. Guard with typeof in case binary
+                // is older than QML.
+                let action = "launch"
                 if (typeof dockModel.activateApp === "function")
-                    dockModel.activateApp(root.appId)
+                    action = dockModel.activateApp(root.appId)
                 else
                     dockModel.launchApp(root.appId)
+
+                if (action === "cycle")
+                    cycleBounceAnim.restart()
+                else if (action === "minimize")
+                    minimizeBounceAnim.restart()
+                else
+                    clickBounceAnim.restart()
+
                 dockModel.clearUrgency(root.appId)
+            } else if (event.button === Qt.MiddleButton) {
+                // Always open a new window/instance, regardless of running state.
+                dockModel.launchApp(root.appId)
+                clickBounceAnim.restart()
             } else {
                 const sp = mouse.mapToGlobal(event.x, event.y)
                 contextMenu.mode  = "app"

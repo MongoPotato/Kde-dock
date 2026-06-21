@@ -256,7 +256,7 @@ void DockModel::markRunning(const QString &appId)
     }
 }
 
-void DockModel::activateApp(const QString &appId)
+QString DockModel::activateApp(const QString &appId)
 {
     const bool hasWindows = m_tracker && m_tracker->hasWindowForApp(appId);
     const bool looksRunning = appMatchesRunning(appId);
@@ -268,9 +268,20 @@ void DockModel::activateApp(const QString &appId)
            qPrintable(m_runningApps.join(QStringLiteral(", "))));
 
     if (hasWindows) {
-        // KWin has a window ID — cycle through open windows to bring one to front
+        // Single window already focused (the one you're currently looking
+        // at) — clicking it again minimizes it, like the Plasma task
+        // manager, instead of doing nothing or re-raising the same window.
+        const bool isSingleWindow = windowCountForRunning(appId) == 1;
+        const bool isActive = m_tracker
+            && shortName(m_tracker->activeAppId()) == shortName(appId);
+        if (isSingleWindow && isActive) {
+            m_tracker->minimizeWindow(appId);
+            return QStringLiteral("minimize");
+        }
+
+        // Otherwise cycle through open windows to bring one to front.
         m_tracker->activateWindow(appId);
-        return;
+        return QStringLiteral("cycle");
     }
 
     // No tracked window: launch (gtk-launch focuses existing GApplication instances).
@@ -278,6 +289,7 @@ void DockModel::activateApp(const QString &appId)
     // click tries activation instead of opening another duplicate window.
     launchApp(appId);
     markRunning(appId);
+    return QStringLiteral("launch");
 }
 
 void DockModel::closeApp(const QString &appId)

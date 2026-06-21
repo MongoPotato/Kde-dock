@@ -41,7 +41,11 @@ public:
     Q_INVOKABLE void unpinApp(const QString &appId);
     Q_INVOKABLE void moveApp(int fromIndex, int toIndex);
     Q_INVOKABLE void launchApp(const QString &appId);
-    Q_INVOKABLE void activateApp(const QString &appId);
+    // Returns the action actually taken: "launch" (no window existed, app was
+    // started), "cycle" (raised/switched to a window), or "minimize" (the
+    // single open window was already focused, so it was sent to the
+    // background). QML uses this to pick the matching feedback animation.
+    Q_INVOKABLE QString activateApp(const QString &appId);
     Q_INVOKABLE void closeApp(const QString &appId);
     Q_INVOKABLE void addAppDialog();
     Q_INVOKABLE void clearUrgency(const QString &appId);

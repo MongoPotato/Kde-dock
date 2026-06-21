@@ -68,6 +68,7 @@ public:
 
     Q_INVOKABLE void closeWindows(const QString &appId);
     Q_INVOKABLE void activateWindow(const QString &appId);
+    Q_INVOKABLE void minimizeWindow(const QString &appId);
 
     bool hasWindowForApp(const QString &appId) const;
 
