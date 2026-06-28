@@ -10,7 +10,7 @@
   "iconSize":    52,
   "padding":     8,
   "spacing":     6,
-  "screenIndex": 0,
+  "screenIndex": -1,
 
   "background": {
     "color":   "#1a1a2e",

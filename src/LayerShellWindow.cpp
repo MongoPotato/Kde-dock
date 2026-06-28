@@ -287,3 +287,22 @@ void LayerShellWindow::setRevealed(bool revealed)
     m_revealed = revealed;
     applyGeometryUpdate();
 }
+
+void LayerShellWindow::reanchorToScreen(QScreen *targetScreen)
+{
+    if (!targetScreen || screen() == targetScreen) return;
+
+    setScreen(targetScreen);
+
+    if (m_isWayland && m_layerShell) {
+        if (m_layerSurface) {
+            zwlr_layer_surface_v1_destroy(m_layerSurface);
+            m_layerSurface = nullptr;
+        }
+        // setupWaylandLayerSurface() re-reads screen() for the wl_output, so
+        // it picks up targetScreen and rebinds the layer-shell role there.
+        setupWaylandLayerSurface();
+    } else {
+        applyX11Geometry();
+    }
+}

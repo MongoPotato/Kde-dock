@@ -84,6 +84,7 @@ private:
     bool appMatchesRunning(const QString &appId) const;
     int windowCountForRunning(const QString &appId) const;
     void markRunning(const QString &appId);
+    void clearStaleRunning(const QString &appId);
 
     ConfigWatcher *m_config;
     TaskTracker *m_tracker = nullptr;

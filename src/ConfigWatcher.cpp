@@ -98,7 +98,11 @@ int ConfigWatcher::spacing() const
 
 int ConfigWatcher::screenIndex() const
 {
-    return m_config.value(QStringLiteral("screenIndex")).toInt(0);
+    // -1 (default) means "follow KDE's primary screen" — the dock always
+    // tracks Plasma's configured primary/priority display, including across
+    // hotplug. A non-negative value pins the dock to that specific screen
+    // index, with automatic fallback to the primary screen if it disappears.
+    return m_config.value(QStringLiteral("screenIndex")).toInt(-1);
 }
 
 // ── Dock bar background ────────────────────────────────────────────────────
@@ -365,7 +369,7 @@ void ConfigWatcher::resetToDefaults()
         {QStringLiteral("iconSize"), 52},
         {QStringLiteral("padding"), 8},
         {QStringLiteral("spacing"), 6},
-        {QStringLiteral("screenIndex"), 0},
+        {QStringLiteral("screenIndex"), -1},
         {QStringLiteral("background"), QJsonObject{
             {QStringLiteral("color"),   QStringLiteral("#1a1a2e")},
             {QStringLiteral("opacity"), 0.85},

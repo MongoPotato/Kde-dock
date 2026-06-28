@@ -79,6 +79,21 @@ int main(int argc, char *argv[])
     LayerShellWindow window;
     window.setAnchor(config.position());
 
+    // Resolve which physical screen the dock belongs on: a non-negative
+    // screenIndex pins it to that screen (falling back to the primary screen
+    // if it's not currently connected), otherwise it always follows KDE's
+    // configured primary screen — including across hotplug.
+    auto resolvePreferredScreen = [&]() -> QScreen * {
+        const int idx = config.screenIndex();
+        const QList<QScreen *> screens = QGuiApplication::screens();
+        if (idx >= 0 && idx < screens.size())
+            return screens.at(idx);
+        return QGuiApplication::primaryScreen();
+    };
+
+    if (QScreen *initialScreen = resolvePreferredScreen())
+        window.setScreen(initialScreen);
+
     // baseThickness = visual strip height (reserved screen space / exclusive zone).
     // winThickness  = full window height: strip + hoverLiftPx so lifted icons
     //                 don't clip at the window edge.
@@ -99,7 +114,7 @@ int main(int argc, char *argv[])
 
     // Set an initial window size so the QML root item has geometry before
     // the layer-shell configure callback fires.
-    if (QScreen *screen = QGuiApplication::primaryScreen()) {
+    if (QScreen *screen = window.screen()) {
         const QRect geom = screen->geometry();
         const bool horizontal = (config.position() == QStringLiteral("bottom")
                               || config.position() == QStringLiteral("top"));
@@ -118,6 +133,17 @@ int main(int argc, char *argv[])
                          window.setThickness(win);
                          window.applyGeometryUpdate();
                      });
+
+    // Re-anchor to the right screen whenever KDE's primary screen changes,
+    // or a screen is plugged/unplugged — covers both "moved the primary
+    // screen in Display settings" and "unplugged the screen the dock was on".
+    auto reanchorScreen = [&]() {
+        if (QScreen *target = resolvePreferredScreen())
+            window.reanchorToScreen(target);
+    };
+    QObject::connect(qApp, &QGuiApplication::primaryScreenChanged, &window, reanchorScreen);
+    QObject::connect(qApp, &QGuiApplication::screenAdded,   &window, reanchorScreen);
+    QObject::connect(qApp, &QGuiApplication::screenRemoved, &window, reanchorScreen);
 
     // Register custom image provider so QML can use "image://kdock/<appId>"
     window.engine()->addImageProvider(QStringLiteral("kdock"), new IconProvider());

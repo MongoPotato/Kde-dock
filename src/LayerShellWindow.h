@@ -19,6 +19,7 @@
 
 struct zwlr_layer_shell_v1;
 struct zwlr_layer_surface_v1;
+class QScreen;
 
 class LayerShellWindow : public QQuickView {
     Q_OBJECT
@@ -50,6 +51,13 @@ public:
     bool revealed() const { return m_revealed; }
 
     void setBlurEnabled(bool enabled);
+
+    // Moves the dock onto a different output, e.g. when KDE's primary screen
+    // changes or the screen the dock was on gets unplugged. Layer-shell binds
+    // a surface to one wl_output for life, so on Wayland this tears down and
+    // recreates the layer surface against the new screen's output; on X11
+    // it's just a geometry re-apply. No-op if already on this screen.
+    void reanchorToScreen(QScreen *targetScreen);
 
     // Public so the C-style Wayland registry callback can write to it
     zwlr_layer_shell_v1 *m_layerShell = nullptr;

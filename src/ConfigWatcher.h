@@ -20,6 +20,8 @@ class ConfigWatcher : public QObject {
     Q_PROPERTY(int iconSize READ iconSize NOTIFY configChanged)
     Q_PROPERTY(int padding READ padding NOTIFY configChanged)
     Q_PROPERTY(int spacing READ spacing NOTIFY configChanged)
+    // -1 = follow KDE's primary screen (default); >=0 pins to that screen
+    // index, falling back to the primary screen if it's unplugged.
     Q_PROPERTY(int screenIndex READ screenIndex NOTIFY configChanged)
 
     // ── Dock bar background ───────────────────────────────────────────────

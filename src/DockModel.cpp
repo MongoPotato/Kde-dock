@@ -17,6 +17,7 @@
 #include <QProcess>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QTimer>
 
 static QString shortName(const QString &appId)
 {
@@ -244,6 +245,15 @@ void DockModel::launchApp(const QString &appId)
 // Immediately mark an appId as running in the model without waiting for the
 // next TaskTracker poll cycle. This makes the running indicator appear at once
 // and ensures subsequent clicks try to activate rather than re-launch.
+//
+// This is optimistic: it's set before any window actually exists. If the
+// launch fails, or the app is a single-instance app that just signalled an
+// existing process without opening a new window, TaskTracker will never see
+// a window for this appId and so will never correct us — its
+// runningAppsChanged only fires when ITS own tracked state changes. Without
+// the watchdog below, the indicator would stay lit (and the count stuck at
+// 0) forever. Give it a few seconds to be confirmed by a real window, then
+// self-heal if it never was.
 void DockModel::markRunning(const QString &appId)
 {
     if (!m_runningApps.contains(appId))
@@ -251,6 +261,24 @@ void DockModel::markRunning(const QString &appId)
     const int idx = indexOfFuzzy(appId);
     if (idx >= 0 && !m_entries.at(idx).running) {
         m_entries[idx].running = true;
+        const QModelIndex mi = index(idx);
+        emit dataChanged(mi, mi, {IsRunningRole});
+    }
+
+    QTimer::singleShot(8000, this, [this, appId]() { clearStaleRunning(appId); });
+}
+
+// Undo an optimistic markRunning() that TaskTracker never confirmed with a
+// real window — leaves everything alone if a window did show up since.
+void DockModel::clearStaleRunning(const QString &appId)
+{
+    if (!m_tracker || m_tracker->hasWindowForApp(appId))
+        return;
+
+    m_runningApps.removeAll(appId);
+    const int idx = indexOfFuzzy(appId);
+    if (idx >= 0 && m_entries.at(idx).running && windowCountForRunning(appId) == 0) {
+        m_entries[idx].running = false;
         const QModelIndex mi = index(idx);
         emit dataChanged(mi, mi, {IsRunningRole});
     }
@@ -283,6 +311,14 @@ QString DockModel::activateApp(const QString &appId)
         m_tracker->activateWindow(appId);
         return QStringLiteral("cycle");
     }
+
+    // No tracked window despite looking "running" — a previous optimistic
+    // markRunning() was never confirmed by a real window (failed launch,
+    // single-instance app that didn't open a new one, etc). Clear it now
+    // instead of waiting for the watchdog, so this click's launch isn't
+    // fighting a stale indicator/state.
+    if (looksRunning)
+        clearStaleRunning(appId);
 
     // No tracked window: launch (gtk-launch focuses existing GApplication instances).
     // Always mark as running immediately so the indicator lights up and the next
