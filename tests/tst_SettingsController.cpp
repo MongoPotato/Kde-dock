@@ -193,6 +193,30 @@ private slots:
         QCOMPARE(m_config->autohide(), false);
     }
 
+    // ── applyAutohideDelay ────────────────────────────────────────────────
+
+    // Below the floor must clamp up: a near-zero delay makes an auto-hiding
+    // dock impossible to aim at, which is the bug the delay exists to avoid
+    void test_applyAutohideDelay_clampsBelow()
+    {
+        m_sc->applyAutohideDelay(0);
+        QCOMPARE(m_config->autohideDelayMs(), 250);
+    }
+
+    // Above the ceiling must clamp down so the dock can't be pinned open
+    void test_applyAutohideDelay_clampsAbove()
+    {
+        m_sc->applyAutohideDelay(60000);
+        QCOMPARE(m_config->autohideDelayMs(), 10000);
+    }
+
+    // A value inside the range passes through untouched
+    void test_applyAutohideDelay_validValue()
+    {
+        m_sc->applyAutohideDelay(3000);
+        QCOMPARE(m_config->autohideDelayMs(), 3000);
+    }
+
     // ── requestOpenSettings ───────────────────────────────────────────────
 
     // Calling requestOpenSettings() must emit the openSettingsRequested signal

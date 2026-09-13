@@ -14,6 +14,12 @@ Item {
     property bool dockAnimating: false   // true while the slide-in animation runs
     readonly property bool isHorizontal: position === "bottom" || position === "top"
 
+    // Number of context menus currently open anywhere in the dock — the bar's
+    // own and every DockItem's. main.qml keeps an auto-hiding dock revealed
+    // while this is non-zero: the cursor is over the menu window rather than
+    // the dock, but the user is obviously still working with the dock.
+    property int openMenuCount: 0
+
     onDockVisibleChanged: console.log("[kdock autohide] DockBar.dockVisible →", dockVisible)
 
     implicitWidth:  isHorizontal ? itemRow.implicitWidth    + config.padding * 2
@@ -135,5 +141,6 @@ Item {
     // ── Context menu ──────────────────────────────────────────────────────
     ContextMenu {
         id: barContextMenu
+        onVisibleChanged: root.openMenuCount += visible ? 1 : -1
     }
 }

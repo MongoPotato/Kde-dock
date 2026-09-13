@@ -12,7 +12,12 @@ Window {
     property string dockPosition: "bottom"
     property Item   parentItem: null
 
+    // WindowTransparentForInput matters for auto-hide: the tooltip is a
+    // separate top-level window that pops up right next to the cursor, and
+    // without this it can take the pointer off the dock surface, which reads
+    // as "cursor left the dock" and starts a hide countdown.
     flags:  Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+            | Qt.WindowTransparentForInput
     color:  "transparent"
     width:  label.implicitWidth + 20
     height: label.implicitHeight + 12

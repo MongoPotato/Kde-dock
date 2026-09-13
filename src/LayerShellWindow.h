@@ -15,6 +15,7 @@
 //   position at the screen edge manually.
 
 #include <QQuickView>
+#include <QRegion>
 #include <QString>
 
 struct zwlr_layer_shell_v1;
@@ -42,11 +43,18 @@ public:
     // Apply thickness + exclusive zone to the running layer surface (no-op if not yet shown).
     void applyGeometryUpdate();
 
-    // Shrinks the real Wayland surface down to a thin reveal-strip at the
-    // anchored edge when auto-hidden (revealed=false), or restores it to the
-    // full configured thickness (revealed=true). Unlike the QML-side slide
-    // transform — which only moves the visual content — this resizes the
-    // actual surface/exclusive zone so the screen edge isn't blocked while hidden.
+    // Auto-hide reveal state.
+    //
+    // While hidden (revealed=false) the surface KEEPS its full configured
+    // size and only its input region is narrowed to a thin reveal-strip along
+    // the anchored edge, so pointer events outside the strip fall through to
+    // whatever is underneath and the screen edge isn't blocked.
+    //
+    // Resizing the surface instead — which is what this used to do — made the
+    // compositor re-deliver pointer enter/leave every time the dock revealed
+    // or hid. With the cursor parked in the reveal strip that fed straight
+    // back into the hover test and the dock cycled show/hide indefinitely
+    // (issue #3). A constant-size surface has no such feedback loop.
     Q_INVOKABLE void setRevealed(bool revealed);
     bool revealed() const { return m_revealed; }
 
@@ -64,11 +72,18 @@ public:
 
 protected:
     void showEvent(QShowEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private:
     void detectWayland();
     void setupWaylandLayerSurface();
     void applyX11Geometry();
+
+    // Narrows (hidden) or clears (revealed) the window's input region.
+    // Uses QWindow::setMask(), which QtWayland maps onto
+    // wl_surface::set_input_region and XCB maps onto the XShape input mask,
+    // so the same call works on both backends.
+    void applyInputMask();
 
     QString m_anchor { QStringLiteral("bottom") };
     int m_thickness = 72;
@@ -77,6 +92,11 @@ private:
     bool m_shellApplied = false;
     bool m_blurEnabled = false;
     bool m_revealed = true;
+
+    // Last region handed to setMask(), so a resize or a reveal that doesn't
+    // actually change the input region costs no surface commit.
+    QRegion m_appliedMask;
+    bool m_maskApplied = false;
 
     zwlr_layer_surface_v1 *m_layerSurface = nullptr;
 };

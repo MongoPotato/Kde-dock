@@ -51,6 +51,9 @@ class ConfigWatcher : public QObject {
 
     // ── Behaviour ─────────────────────────────────────────────────────────
     Q_PROPERTY(bool autohide READ autohide NOTIFY configChanged)
+    // Grace period between the cursor leaving the icon bar and the dock
+    // sliding away, in milliseconds.
+    Q_PROPERTY(int autohideDelayMs READ autohideDelayMs NOTIFY configChanged)
     Q_PROPERTY(bool magnify READ magnify NOTIFY configChanged)
     Q_PROPERTY(double magnifyScale READ magnifyScale NOTIFY configChanged)
     Q_PROPERTY(int magnifyRadius READ magnifyRadius NOTIFY configChanged)
@@ -95,6 +98,7 @@ public:
     int scrollMaxSize() const;
 
     bool autohide() const;
+    int autohideDelayMs() const;
     bool magnify() const;
     double magnifyScale() const;
     int magnifyRadius() const;
@@ -124,6 +128,7 @@ public:
     Q_INVOKABLE void setHoverLiftPx(int px);
     Q_INVOKABLE void setBackgroundOpacity(double v);
     Q_INVOKABLE void setAutohide(bool on);
+    Q_INVOKABLE void setAutohideDelayMs(int ms);
     Q_INVOKABLE void setIconBgShape(const QString &shape);
     Q_INVOKABLE void setIconBgOpacity(double v);
     Q_INVOKABLE void setBlurEnabled(bool on);

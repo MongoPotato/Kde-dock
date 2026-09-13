@@ -43,8 +43,9 @@ Item {
         target: dockBar
         function onDockVisibleChanged() {
             if (!dockBar.dockVisible) {
-                root.state = "normal"
-                tooltip.hide()
+                // The hover state itself is a binding (see `state` below) and
+                // drops out on its own; only the one-shot click animations
+                // need unwinding so a hidden icon doesn't come back mid-bounce.
                 clickBounceAnim.stop()
                 cycleBounceAnim.stop()
                 minimizeBounceAnim.stop()
@@ -89,7 +90,18 @@ Item {
         }
     ]
 
-    state: "normal"
+    // Derived, not assigned: an imperative `state = ...` in a hover handler
+    // latches, so a hover event lost to a window resize or a sibling window
+    // would leave the icon stuck lifted (or stuck flat) until the cursor
+    // moved again. As a binding the lift always tracks the real hover state,
+    // and re-evaluates by itself when the slide-in animation finishes.
+    state: (mouse.containsMouse && !root.dockAnimating && dockBar.dockVisible)
+           ? "hovered" : "normal"
+
+    onStateChanged: {
+        if (state === "hovered") tooltip.show()
+        else                     tooltip.hide()
+    }
 
     // ── Glow ring behind icon ────────────────────────────────────────────
     Rectangle {
@@ -271,18 +283,9 @@ Item {
             }
         }
 
-        onEntered: {
-            // Don't enter hover state while the dock is sliding in — the
-            // icon is still in motion and the animation looks jerky.
-            if (!root.dockAnimating) {
-                root.state = "hovered"
-                tooltip.show()
-            }
-        }
-        onExited: {
-            root.state = "normal"
-            tooltip.hide()
-        }
+        // No onEntered/onExited: containsMouse drives root.state directly.
+        // Hover during the slide-in is suppressed by the dockAnimating term
+        // in that binding, which then re-evaluates once the slide completes.
     }
 
     // ── Tooltip ──────────────────────────────────────────────────────────
@@ -296,5 +299,8 @@ Item {
     // ── Context menu (shared ContextMenu component) ──────────────────────
     ContextMenu {
         id: contextMenu
+        // Reported up to DockBar so an auto-hiding dock stays revealed while
+        // this menu is open (see DockBar.openMenuCount).
+        onVisibleChanged: root.dockBar.openMenuCount += visible ? 1 : -1
     }
 }

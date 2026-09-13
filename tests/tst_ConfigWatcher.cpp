@@ -70,6 +70,55 @@ private slots:
         // No crash; unknown key is ignored
     }
 
+    // A config predating autohideDelayMs must still get a usable, generous
+    // delay rather than 0 — a 0 ms delay hides the dock the instant the
+    // cursor clips its edge.
+    void test_autohideDelayDefaultsWhenAbsent()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohide":true})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohide(), true);
+        QCOMPARE(cw.autohideDelayMs(), 2500);
+    }
+
+    // An explicit autohideDelayMs in the file must win over the default
+    void test_autohideDelayReadFromConfig()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohideDelayMs":4000})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideDelayMs(), 4000);
+    }
+
+    // setAutohideDelayMs() must persist so the value survives a reload
+    void test_setAutohideDelayMs_persists()
+    {
+        ConfigWatcher cw;
+        cw.setAutohideDelayMs(3750);
+        cw.reload();
+        QCOMPARE(cw.autohideDelayMs(), 3750);
+    }
+
+    // resetToDefaults() must leave the delay at the built-in default
+    void test_resetToDefaults_restoresAutohideDelay()
+    {
+        ConfigWatcher cw;
+        cw.setAutohideDelayMs(9000);
+        cw.resetToDefaults();
+        QCOMPARE(cw.autohideDelayMs(), 2500);
+    }
+
     // Verify that a corrupt JSON file falls back to defaults without crashing
     void test_fallsBackOnCorruptJson()
     {

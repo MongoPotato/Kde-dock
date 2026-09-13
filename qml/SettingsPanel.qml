@@ -228,13 +228,33 @@ Window {
                 // ── Auto-hide ─────────────────────────────────────────────
                 RowLayout { spacing: 12; Layout.fillWidth: true
                     ColumnLayout { spacing: 2
-                        Text { text: "Auto-hide dock";                    color: "white"; font.pixelSize: 13 }
-                        Text { text: "Hides when cursor leaves the dock"; color: "#888";  font.pixelSize: 11 }
+                        Text { text: "Auto-hide dock";                        color: "white"; font.pixelSize: 13 }
+                        Text { text: "Hides once the cursor leaves the icons"; color: "#888";  font.pixelSize: 11 }
                     }
                     Item { Layout.fillWidth: true }
                     Switch {
                         checked: config.autohide
                         onToggled: settings.applyAutohide(checked)
+                    }
+                }
+
+                // ── Auto-hide delay ───────────────────────────────────────
+                RowLayout { spacing: 12; Layout.fillWidth: true
+                    enabled: config.autohide
+                    opacity: enabled ? 1.0 : 0.45
+                    ColumnLayout { spacing: 2
+                        Text { text: "Auto-hide delay"; color: "white"; font.pixelSize: 13 }
+                        Text { text: "Wait before hiding, 0.25 – 10 s"; color: "#888"; font.pixelSize: 11 }
+                    }
+                    Slider {
+                        id: hideDelaySlider
+                        Layout.fillWidth: true
+                        from: 250; to: 10000; value: config.autohideDelayMs; stepSize: 250
+                        onMoved: settings.applyAutohideDelay(value)
+                    }
+                    Text {
+                        text: (hideDelaySlider.value / 1000).toFixed(2) + " s"
+                        color: "white"; font.pixelSize: 13; Layout.minimumWidth: 52
                     }
                 }
 

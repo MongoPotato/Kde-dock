@@ -29,6 +29,7 @@ public:
     Q_INVOKABLE void applyHoverLift(int px);
     Q_INVOKABLE void applyDockOpacity(double v);
     Q_INVOKABLE void applyAutohide(bool on);
+    Q_INVOKABLE void applyAutohideDelay(int ms);
     Q_INVOKABLE void applyIconBgShape(const QString &shape);
     Q_INVOKABLE void applyIconBgOpacity(double v);
     Q_INVOKABLE void resetDefaults();

@@ -41,10 +41,11 @@
     "maxSize": 128
   },
 
-  "autohide":      false,
-  "magnify":       true,
-  "magnifyScale":  1.5,
-  "magnifyRadius": 120,
+  "autohide":        false,
+  "autohideDelayMs": 2500,
+  "magnify":         true,
+  "magnifyScale":    1.5,
+  "magnifyRadius":   120,
 
   "runningIndicator": {
     "visible": true,

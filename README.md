@@ -153,8 +153,8 @@ apply immediately, no restart needed.
 
 Open the in-app settings panel via right-click → **Dock settings…** to
 adjust icon size, hover lift/magnify, dock position and opacity, icon
-background shape, blur-behind, adaptive colour tint, and auto-hide — or
-edit `dock.json` directly:
+background shape, blur-behind, adaptive colour tint, and auto-hide (plus
+its hide delay) — or edit `dock.json` directly:
 
 ```jsonc
 {
@@ -164,6 +164,8 @@ edit `dock.json` directly:
   "padding": 8,
   "spacing": 6,
   "autohide": false,
+  "autohideDelayMs": 2500,     // how long after the cursor leaves the icon
+                               // bar before the dock slides away (250–10000)
   "magnify": true,
   "magnifyScale": 1.5,
   "background": { "color": "#1a1a2e", "opacity": 0.85, "radius": 14 }

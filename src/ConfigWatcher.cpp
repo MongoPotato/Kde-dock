@@ -222,6 +222,14 @@ bool ConfigWatcher::autohide() const
     return m_config.value(QStringLiteral("autohide")).toBool(false);
 }
 
+// How long the dock waits, after the cursor has left the icon bar, before it
+// slides away. Deliberately generous: a dock that vanishes the instant the
+// cursor clips its edge is impossible to aim at.
+int ConfigWatcher::autohideDelayMs() const
+{
+    return m_config.value(QStringLiteral("autohideDelayMs")).toInt(2500);
+}
+
 bool ConfigWatcher::magnify() const
 {
     return m_config.value(QStringLiteral("magnify")).toBool(true);
@@ -313,6 +321,13 @@ void ConfigWatcher::setAutohide(bool on)
     save();
 }
 
+void ConfigWatcher::setAutohideDelayMs(int ms)
+{
+    m_config[QStringLiteral("autohideDelayMs")] = ms;
+    emit configChanged();
+    save();
+}
+
 void ConfigWatcher::setIconBgShape(const QString &shape)
 {
     QJsonObject ib = m_config.value(QStringLiteral("iconBackground")).toObject();
@@ -395,10 +410,11 @@ void ConfigWatcher::resetToDefaults()
             {QStringLiteral("minSize"), 24},
             {QStringLiteral("maxSize"), 128},
         }},
-        {QStringLiteral("autohide"),      false},
-        {QStringLiteral("magnify"),       true},
-        {QStringLiteral("magnifyScale"),  1.5},
-        {QStringLiteral("magnifyRadius"), 120},
+        {QStringLiteral("autohide"),        false},
+        {QStringLiteral("autohideDelayMs"), 2500},
+        {QStringLiteral("magnify"),         true},
+        {QStringLiteral("magnifyScale"),    1.5},
+        {QStringLiteral("magnifyRadius"),   120},
         {QStringLiteral("runningIndicator"), QJsonObject{
             {QStringLiteral("visible"), true},
             {QStringLiteral("color"),   QStringLiteral("#4fc3f7")},
