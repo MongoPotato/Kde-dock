@@ -37,11 +37,22 @@ LayerPopup {
     // "really tricky to get the option menu up" flash.
     property bool _everActive: false
 
+    // Whether the cursor has ever reached the menu since it opened. Before it
+    // has, the user is still travelling towards the menu and it must not go
+    // anywhere; once they have been on it and left, they are done with it.
+    property bool _pointerVisited: false
+
     onPopupActiveChanged: {
-        if (popupActive)
+        if (popupActive) {
             _everActive = true
-        else if (_everActive && visible)
-            visible = false   // genuine click-outside: we had focus and lost it
+            return
+        }
+        // Focus-loss dismissal only where focus is actually meaningful. On the
+        // layer-shell path focus arrives and leaves on its own as the
+        // compositor shuffles it around, and treating that as a click-outside
+        // shut the menu again before it could be read.
+        if (!usingLayerShell && _everActive && visible)
+            visible = false
     }
 
     // NOTE: no onVisibleChanged handler here. DockBar and DockItem attach one
@@ -52,6 +63,7 @@ LayerPopup {
     // Open above the click point, clamped to the screen the click was on.
     function openAt(screenX, screenY) {
         _everActive = false
+        _pointerVisited = false
         // Position BEFORE showing. Showing first and positioning in a
         // callLater made the menu appear at its previous coordinates for a
         // frame and jump, which on its own is enough to lose a click.
@@ -85,11 +97,30 @@ LayerPopup {
 
     function positionSelf(sx, sy) {
         const scr = _screenAt(sx, sy)
-        let px = sx - 8
-        let py = sy - root.height - 8
-        if (px + root.width > scr.virtualX + scr.width)  px = scr.virtualX + scr.width - root.width - 8
-        if (px < scr.virtualX)                            px = scr.virtualX + 8
-        if (py < scr.virtualY)                            py = sy + 8
+        const gap = 8
+        let px = sx - gap
+        let py = sy - root.height - gap
+
+        // Push the menu entirely clear of the dock, rather than merely above
+        // the click point. Clicking an icon puts the click inside the dock, so
+        // "above the click" still left the lower entries overlapping the dock
+        // strip — and whichever of the two the compositor draws on top, half
+        // the menu was unusable. Measuring from the dock's own rectangle means
+        // the menu never shares pixels with it.
+        const d = dockWindow.dockScreenRect
+        switch (config.position) {
+        case "top":   py = Math.max(py, d.y + d.height + gap); break
+        case "left":  px = Math.max(px, d.x + d.width  + gap); break
+        case "right": px = Math.min(px, d.x - root.width - gap); break
+        default:      py = Math.min(py, d.y - root.height - gap); break
+        }
+
+        // Then keep it on the screen.
+        if (px + root.width > scr.virtualX + scr.width)  px = scr.virtualX + scr.width - root.width - gap
+        if (px < scr.virtualX)                            px = scr.virtualX + gap
+        if (py + root.height > scr.virtualY + scr.height) py = scr.virtualY + scr.height - root.height - gap
+        if (py < scr.virtualY)                            py = scr.virtualY + gap
+
         // popupX/popupY, not x/y: a layer surface is placed by margins, so
         // Qt's own window position means nothing to it. The fallback path
         // mirrors these onto x/y.
@@ -97,17 +128,29 @@ LayerPopup {
         root.popupY = py
     }
 
-    // Safety net for the case above: if the menu never gets focus, nothing
-    // would ever close it on a click elsewhere. Close it once the cursor has
-    // been away from it for a while instead of leaving it stranded on screen.
-    HoverHandler { id: menuHover }
+    // With focus-loss dismissal gone on the layer-shell path, the cursor is
+    // what closes the menu. Two very different situations, so two very
+    // different timeouts:
+    //
+    //   not yet visited — the user is still moving towards the menu, or just
+    //                     reading it from where they are. Give them a long
+    //                     while; the previous flat 4 s read as the menu
+    //                     vanishing before they could react.
+    //   visited, now away — they have used it and moved on. Close promptly.
+    //
+    // Opening another menu closes this one too (LayerShellPopup exclusivity),
+    // as does choosing an entry or pressing Escape.
+    HoverHandler {
+        id: menuHover
+        onHoveredChanged: if (hovered) root._pointerVisited = true
+    }
 
     Timer {
-        id: strandedGuard
-        interval: 4000
+        id: closeGuard
+        interval: root._pointerVisited ? 1500 : 15000
         running:  root.visible && !menuHover.hovered
         repeat:   false
-        onTriggered: if (!root._everActive) root.visible = false
+        onTriggered: root.visible = false
     }
 
     // ── Visual shell ─────────────────────────────────────────────────────────

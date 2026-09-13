@@ -101,40 +101,73 @@ static const char kWinScript[] = R"js(
         return false;
     }
 
-    function coversDock(w) {
-        if (!w || !dockRect) return false;
-        // Must be a real application window. Testing for normalWindow being
-        // TRUE, not merely "not false", is what keeps panels, docks, popups,
-        // notifications, OSDs and our own layer surface out of the count —
-        // those either report false or don't have the property at all.
+    // Is this window in "full window mode" — maximised or fullscreen? Such a
+    // window owns the whole screen including the dock's strip, and this is the
+    // case that actually matters day to day. KWin doesn't expose maximisation
+    // the same way across versions, so this tries the properties and then
+    // falls back to measuring against the window's own output.
+    function isFullWindow(w) {
+        if (w.fullScreen) return true;
+        if (w.maximizedHorizontally === true && w.maximizedVertically === true) return true;
+        var g = w.frameGeometry;
+        var o = (w.output && w.output.geometry) ? w.output.geometry : null;
+        if (!g || !o) return false;
+        return g.width >= o.width * 0.95 && g.height >= o.height * 0.95;
+    }
+
+    function isRealVisibleWindow(w) {
+        if (!w) return false;
+        // Testing for normalWindow being TRUE, not merely "not false", is what
+        // keeps panels, docks, popups, notifications, OSDs and our own layer
+        // surface out of the count — those either report false or don't have
+        // the property at all.
         if (!w.normalWindow) return false;
         if (w.desktopWindow || w.skipTaskbar) return false;
-        // Not currently on screen. `hidden` covers windows KWin has taken off
-        // screen for reasons other than minimising.
+        // `hidden` covers windows KWin has taken off screen for reasons other
+        // than the user minimising them.
         if (w.minimized || w.hidden) return false;
-        if (!onCurrentDesktop(w)) return false;
+        return onCurrentDesktop(w);
+    }
+
+    function coversDock(w) {
+        if (!dockRect || !isRealVisibleWindow(w)) return false;
+        if (isFullWindow(w)) return true;
+
+        // Otherwise: does it genuinely intrude into the dock's strip? A few
+        // pixels of overlap is a window resting against the dock's edge, not
+        // one covering it, and treating that as obstruction made the dock
+        // hide when nothing was really in the way.
         var g = w.frameGeometry;
         if (!g) return false;
-        return g.x < dockRect.x + dockRect.w && g.x + g.width  > dockRect.x
-            && g.y < dockRect.y + dockRect.h && g.y + g.height > dockRect.y;
+        var overlapW = Math.min(g.x + g.width,  dockRect.x + dockRect.w) - Math.max(g.x, dockRect.x);
+        var overlapH = Math.min(g.y + g.height, dockRect.y + dockRect.h) - Math.max(g.y, dockRect.y);
+        return overlapW > 0 && overlapH >= 8;
+    }
+
+    function describe(w) {
+        var name = w.resourceClass || w.caption || 'window';
+        return String(name) + (isFullWindow(w) ? ' (full window)' : ' (overlaps dock)');
     }
 
     function recomputeObstruction() {
         if (!dockRect) return;
         var hit = false;
+        var why = 'nothing covers the dock';
         // "Show desktop" doesn't minimise anything — KWin just stops painting
         // the windows — so every window still reports its normal geometry and
         // the dock stayed hidden over an empty desktop. Nothing is covering
         // the dock in this mode, by definition.
-        if (!workspace.showingDesktop) {
+        if (workspace.showingDesktop) {
+            why = 'showing desktop';
+        } else {
             var list = workspace.windowList ? workspace.windowList() : [];
             for (var k = 0; k < list.length; k++) {
-                if (coversDock(list[k])) { hit = true; break; }
+                if (coversDock(list[k])) { hit = true; why = describe(list[k]); break; }
             }
         }
         if (hit !== lastObstructed) {
             lastObstructed = hit;
-            callDBus(svc, path, iface, 'reportDockObstructed', hit);
+            callDBus(svc, path, iface, 'reportDockObstructed', hit, why);
         }
     }
 
@@ -213,12 +246,12 @@ void TaskTracker::setDockRect(const QRect &rect)
     setupKWinScript();
 }
 
-void TaskTracker::onDockObstructedChanged(bool obstructed)
+void TaskTracker::onDockObstructedChanged(bool obstructed, const QString &reason)
 {
     if (m_dockObstructed == obstructed) return;
     m_dockObstructed = obstructed;
-    qDebug("kdock [tasktracker]: dock %s", obstructed ? "obstructed by a window"
-                                                      : "clear of windows");
+    qDebug("kdock [tasktracker]: dock %s — %s",
+           obstructed ? "obstructed" : "clear", qPrintable(reason));
     emit dockObstructionChanged();
 }
 

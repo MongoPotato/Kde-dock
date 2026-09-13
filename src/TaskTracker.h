@@ -50,15 +50,18 @@ public slots:
     Q_SCRIPTABLE void reportWindowUrgent(const QString &uuid, bool urgent)
     { emit windowUrgentChanged(uuid, urgent); }
 
-    Q_SCRIPTABLE void reportDockObstructed(bool obstructed)
-    { emit dockObstructedChanged(obstructed); }
+    // reason is for the log only: it names the window that triggered the
+    // change, which is the difference between "dodge is broken" and "dodge is
+    // reacting to something you didn't expect".
+    Q_SCRIPTABLE void reportDockObstructed(bool obstructed, const QString &reason)
+    { emit dockObstructedChanged(obstructed, reason); }
 
 signals:
     void windowAdded(const QString &uuid, const QString &desktopFile);
     void windowRemoved(const QString &uuid);
     void windowActivated(const QString &uuid);
     void windowUrgentChanged(const QString &uuid, bool urgent);
-    void dockObstructedChanged(bool obstructed);
+    void dockObstructedChanged(bool obstructed, const QString &reason);
 };
 
 class TaskTracker : public QObject {
@@ -106,7 +109,7 @@ private slots:
     void onWindowRemoved(const QString &uuid);
     void onWindowActivated(const QString &uuid);
     void onWindowUrgentChanged(const QString &uuid, bool urgent);
-    void onDockObstructedChanged(bool obstructed);
+    void onDockObstructedChanged(bool obstructed, const QString &reason);
 
 private:
     void        setupKWinScript();
