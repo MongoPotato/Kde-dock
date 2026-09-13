@@ -21,6 +21,7 @@
 
 #include <QMap>
 #include <QObject>
+#include <QRect>
 #include <QSet>
 #include <QStringList>
 #include <QTimer>
@@ -49,11 +50,15 @@ public slots:
     Q_SCRIPTABLE void reportWindowUrgent(const QString &uuid, bool urgent)
     { emit windowUrgentChanged(uuid, urgent); }
 
+    Q_SCRIPTABLE void reportDockObstructed(bool obstructed)
+    { emit dockObstructedChanged(obstructed); }
+
 signals:
     void windowAdded(const QString &uuid, const QString &desktopFile);
     void windowRemoved(const QString &uuid);
     void windowActivated(const QString &uuid);
     void windowUrgentChanged(const QString &uuid, bool urgent);
+    void dockObstructedChanged(bool obstructed);
 };
 
 class TaskTracker : public QObject {
@@ -74,12 +79,26 @@ public:
 
     Q_PROPERTY(QString activeAppId READ activeAppId NOTIFY activeAppChanged)
 
+    // True while some visible window on the current desktop overlaps the
+    // rectangle the dock occupies. Drives dodge mode: the dock only gets out
+    // of the way when something is actually in its way. Always false until
+    // setDockRect() has been given a rectangle to watch.
+    Q_PROPERTY(bool dockObstructed READ dockObstructed NOTIFY dockObstructionChanged)
+
+    bool dockObstructed() const { return m_dockObstructed; }
+
+    // The screen rectangle to watch, in global coordinates. An empty rect
+    // turns obstruction tracking off. Reloads the KWin script when it changes,
+    // since the rectangle is baked into the script.
+    void setDockRect(const QRect &rect);
+
 signals:
     void runningAppsChanged(const QStringList &appIds);
     void windowUrgent(const QString &appId);
     void windowNotUrgent(const QString &appId);
     void windowCountChanged(const QString &appId, int count);
     void activeAppChanged(const QString &appId);
+    void dockObstructionChanged();
 
 private slots:
     void poll();
@@ -87,6 +106,7 @@ private slots:
     void onWindowRemoved(const QString &uuid);
     void onWindowActivated(const QString &uuid);
     void onWindowUrgentChanged(const QString &uuid, bool urgent);
+    void onDockObstructedChanged(bool obstructed);
 
 private:
     void        setupKWinScript();
@@ -100,6 +120,9 @@ private:
     KWinBridge     *m_bridge    = nullptr;
     QTimer          m_pollTimer;
     bool            m_scriptLoaded  = false;
+    bool            m_bridgeRegistered = false;
+    QRect           m_dockRect;
+    bool            m_dockObstructed = false;
     int             m_actionCounter = 0;
 
     QMap<QString, QString> m_windowAppIds;   // uuid  → appId

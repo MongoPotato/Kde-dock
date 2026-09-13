@@ -45,7 +45,16 @@ Item {
     // Keeps the icon strip rendered until the slide-out has actually finished.
     property bool contentRendered: true
 
-    readonly property bool dockVisible: !config.autohide || dockHeld
+    // Whether hiding behaviour applies right now.
+    //   "always" — yes, unconditionally
+    //   "dodge"  — only while a window actually overlaps the dock's strip;
+    //              the rest of the time the dock behaves like a fixed one
+    //   "never"  — no
+    readonly property bool autohideActive:
+        config.autohideMode === "always"
+        || (config.autohideMode === "dodge" && taskTracker.dockObstructed)
+
+    readonly property bool dockVisible: !autohideActive || dockHeld
 
     // ── Icon-bar hover zone ───────────────────────────────────────────────
     readonly property int stripThickness: config.dockVisualThickness
@@ -67,7 +76,7 @@ Item {
     // Single source of truth for the auto-hide decision. Called on every
     // pointer, menu and config change — never assumes an event was reliable.
     function evaluateAutohide() {
-        if (!config.autohide) {
+        if (!autohideActive) {
             hideTimer.stop()
             return
         }
@@ -85,8 +94,15 @@ Item {
             hideTimer.start()
     }
 
-    onPointerOnDockChanged: evaluateAutohide()
-    onMenuOpenChanged:      evaluateAutohide()
+    onPointerOnDockChanged:  evaluateAutohide()
+    onMenuOpenChanged:       evaluateAutohide()
+    // A window moving into or out of the dock's strip is what drives dodge:
+    // re-decide as soon as that changes, and reset the latch so a dock that
+    // was held up by the cursor doesn't stay up once the strip is clear.
+    onAutohideActiveChanged: {
+        if (!autohideActive) root.dockHeld = false
+        evaluateAutohide()
+    }
 
     Connections {
         target: config
@@ -102,7 +118,10 @@ Item {
 
     onDockVisibleChanged: {
         console.log("[kdock autohide] dockVisible →", dockVisible,
-                    "  autohide:", config.autohide, "  dockHeld:", dockHeld)
+                    "  mode:", config.autohideMode,
+                    "  active:", autohideActive,
+                    "  obstructed:", taskTracker.dockObstructed,
+                    "  dockHeld:", dockHeld)
         if (dockVisible) {
             // Lock out hover-on-icon animations while the dock slides in
             root._dockAnimating   = true
@@ -132,7 +151,7 @@ Item {
         onTriggered: {
             // Re-check: the cursor may have come back, or a menu may have
             // opened, at any point while the countdown was running.
-            if (root.pointerOnDock || root.menuOpen || !config.autohide) {
+            if (root.pointerOnDock || root.menuOpen || !root.autohideActive) {
                 root.evaluateAutohide()
                 return
             }

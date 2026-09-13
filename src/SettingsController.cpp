@@ -59,6 +59,15 @@ void SettingsController::applyAutohideDelay(int ms)
     m_config->setAutohideDelayMs(qBound(250, ms, 10000));
 }
 
+void SettingsController::applyAutohideMode(const QString &mode)
+{
+    static const QStringList valid{
+        QStringLiteral("never"), QStringLiteral("always"), QStringLiteral("dodge"),
+    };
+    if (valid.contains(mode))
+        m_config->setAutohideMode(mode);
+}
+
 void SettingsController::applyReserveSpace(bool on)
 {
     m_config->setReserveSpace(on);

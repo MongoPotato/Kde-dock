@@ -217,6 +217,33 @@ private slots:
         QCOMPARE(m_config->autohideDelayMs(), 3000);
     }
 
+    // ── applyAutohideMode ─────────────────────────────────────────────────
+
+    void test_applyAutohideMode_acceptsDodge()
+    {
+        m_sc->applyAutohideMode(QStringLiteral("dodge"));
+        QCOMPARE(m_config->autohideMode(), QStringLiteral("dodge"));
+    }
+
+    // A junk mode must be rejected outright rather than written to the file
+    void test_applyAutohideMode_rejectsInvalid()
+    {
+        m_sc->applyAutohideMode(QStringLiteral("always"));
+        m_sc->applyAutohideMode(QStringLiteral("nonsense"));
+        QCOMPARE(m_config->autohideMode(), QStringLiteral("always"));
+    }
+
+    void test_applyAutohideMode_allValidModes()
+    {
+        const QStringList modes{
+            QStringLiteral("never"), QStringLiteral("always"), QStringLiteral("dodge"),
+        };
+        for (const QString &m : modes) {
+            m_sc->applyAutohideMode(m);
+            QCOMPARE(m_config->autohideMode(), m);
+        }
+    }
+
     // ── requestOpenSettings ───────────────────────────────────────────────
 
     // Calling requestOpenSettings() must emit the openSettingsRequested signal

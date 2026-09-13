@@ -45,6 +45,12 @@ static const char kWinScript[] = R"js(
     var path  = '/WindowTracker';
     var iface = 'org.kde.kdock.WindowTracker';
 
+    // Substituted by TaskTracker::setupKWinScript(): the screen rectangle the
+    // dock occupies, or null when dodge mode isn't in use and no obstruction
+    // tracking is wanted.
+    var dockRect = __DOCK_RECT__;
+    var lastObstructed = null;
+
     function reportUrgent(w) {
         callDBus(svc, path, iface, 'reportWindowUrgent', String(w.internalId), !!w.demandsAttention);
     }
@@ -71,11 +77,69 @@ static const char kWinScript[] = R"js(
     workspace.windowRemoved.connect(function(w) {
         if (!w) return;
         callDBus(svc, path, iface, 'reportWindowRemoved', String(w.internalId));
+        recomputeObstruction();
     });
 
     workspace.windowActivated.connect(function(w) {
         callDBus(svc, path, iface, 'reportWindowActivated', w ? String(w.internalId) : '');
+        recomputeObstruction();
     });
+
+    // ── Dock obstruction, for dodge mode ──────────────────────────────────
+    // Reports a single boolean: does any window the user can currently see
+    // overlap the rectangle the dock occupies? That is what lets the dock get
+    // out of the way only when something is actually in its way, rather than
+    // hiding on a timer or guessing from the application name.
+    //
+    // Only the transition is reported, not every geometry change, so dragging
+    // a window around costs at most one DBus call each way.
+    function onCurrentDesktop(w) {
+        if (w.onAllDesktops) return true;
+        if (!w.desktops || !workspace.currentDesktop) return true;
+        for (var d = 0; d < w.desktops.length; d++)
+            if (w.desktops[d] === workspace.currentDesktop) return true;
+        return false;
+    }
+
+    function coversDock(w) {
+        if (!w || !dockRect) return false;
+        // Skip anything that isn't a real, visible application window: our own
+        // layer surface, the desktop, panels, and minimised windows.
+        if (w.minimized || w.skipTaskbar || w.desktopWindow) return false;
+        if (w.normalWindow === false) return false;
+        if (!onCurrentDesktop(w)) return false;
+        var g = w.frameGeometry;
+        if (!g) return false;
+        return g.x < dockRect.x + dockRect.w && g.x + g.width  > dockRect.x
+            && g.y < dockRect.y + dockRect.h && g.y + g.height > dockRect.y;
+    }
+
+    function recomputeObstruction() {
+        if (!dockRect) return;
+        var list = workspace.windowList ? workspace.windowList() : [];
+        var hit = false;
+        for (var k = 0; k < list.length; k++) {
+            if (coversDock(list[k])) { hit = true; break; }
+        }
+        if (hit !== lastObstructed) {
+            lastObstructed = hit;
+            callDBus(svc, path, iface, 'reportDockObstructed', hit);
+        }
+    }
+
+    function watchGeometry(w) {
+        if (!w || !dockRect) return;
+        if (w.frameGeometryChanged) w.frameGeometryChanged.connect(recomputeObstruction);
+        if (w.minimizedChanged)     w.minimizedChanged.connect(recomputeObstruction);
+        if (w.desktopsChanged)      w.desktopsChanged.connect(recomputeObstruction);
+        if (w.fullScreenChanged)    w.fullScreenChanged.connect(recomputeObstruction);
+    }
+
+    for (var j = 0; j < wins.length; j++) { watchGeometry(wins[j]); }
+    workspace.windowAdded.connect(function(w) { watchGeometry(w); recomputeObstruction(); });
+    if (workspace.currentDesktopChanged)
+        workspace.currentDesktopChanged.connect(recomputeObstruction);
+    recomputeObstruction();
 })();
 )js";
 
@@ -103,6 +167,28 @@ TaskTracker::TaskTracker(QObject *parent)
 
 TaskTracker::~TaskTracker() = default;
 
+void TaskTracker::setDockRect(const QRect &rect)
+{
+    if (m_dockRect == rect) return;
+    m_dockRect = rect;
+
+    // The old script is watching the old rectangle; replace it wholesale.
+    if (m_dockRect.isEmpty() && m_dockObstructed) {
+        m_dockObstructed = false;
+        emit dockObstructionChanged();
+    }
+    setupKWinScript();
+}
+
+void TaskTracker::onDockObstructedChanged(bool obstructed)
+{
+    if (m_dockObstructed == obstructed) return;
+    m_dockObstructed = obstructed;
+    qDebug("kdock [tasktracker]: dock %s", obstructed ? "obstructed by a window"
+                                                      : "clear of windows");
+    emit dockObstructionChanged();
+}
+
 // ── Persistent tracking script setup ──────────────────────────────────────────
 void TaskTracker::setupKWinScript()
 {
@@ -112,16 +198,22 @@ void TaskTracker::setupKWinScript()
         connect(m_bridge, &KWinBridge::windowRemoved,      this, &TaskTracker::onWindowRemoved);
         connect(m_bridge, &KWinBridge::windowActivated,    this, &TaskTracker::onWindowActivated);
         connect(m_bridge, &KWinBridge::windowUrgentChanged, this, &TaskTracker::onWindowUrgentChanged);
+        connect(m_bridge, &KWinBridge::dockObstructedChanged, this, &TaskTracker::onDockObstructedChanged);
     }
 
-    const bool svcOk = QDBusConnection::sessionBus()
-                           .registerService(QStringLiteral("org.kde.kdock"));
-    const bool objOk = QDBusConnection::sessionBus()
-                           .registerObject(QStringLiteral("/WindowTracker"), m_bridge,
-                                           QDBusConnection::ExportScriptableSlots);
-    qDebug("kdock [tasktracker]: DBus bridge — service=%s  object=%s",
-           svcOk ? "OK" : "FAILED (may already be registered)",
-           objOk ? "OK" : "FAILED");
+    // Register once. setupKWinScript() also runs whenever the dodge rectangle
+    // changes, and re-registering an already-registered name just fails noisily.
+    if (!m_bridgeRegistered) {
+        const bool svcOk = QDBusConnection::sessionBus()
+                               .registerService(QStringLiteral("org.kde.kdock"));
+        const bool objOk = QDBusConnection::sessionBus()
+                               .registerObject(QStringLiteral("/WindowTracker"), m_bridge,
+                                               QDBusConnection::ExportScriptableSlots);
+        qDebug("kdock [tasktracker]: DBus bridge — service=%s  object=%s",
+               svcOk ? "OK" : "FAILED (may already be registered)",
+               objOk ? "OK" : "FAILED");
+        m_bridgeRegistered = svcOk && objOk;
+    }
 
     const QString scriptPath = QStringLiteral("/tmp/kdock_tracker.js");
     QFile f(scriptPath);
@@ -129,7 +221,18 @@ void TaskTracker::setupKWinScript()
         qWarning("kdock [tasktracker]: cannot write KWin script to '%s'", qPrintable(scriptPath));
         return;
     }
-    f.write(kWinScript);
+    // Bake the watched rectangle into the script: KWin scripts have no inbound
+    // RPC, so a changed dock geometry means rewriting and reloading the script.
+    const QString rectLiteral = m_dockRect.isEmpty()
+        ? QStringLiteral("null")
+        : QStringLiteral("{x:%1,y:%2,w:%3,h:%4}")
+              .arg(m_dockRect.x()).arg(m_dockRect.y())
+              .arg(m_dockRect.width()).arg(m_dockRect.height());
+
+    QString script = QString::fromLatin1(kWinScript);
+    script.replace(QStringLiteral("__DOCK_RECT__"), rectLiteral);
+
+    f.write(script.toUtf8());
     f.close();
 
     if (!m_scripting->isValid())

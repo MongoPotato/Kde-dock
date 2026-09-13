@@ -216,6 +216,123 @@ private slots:
         QCOMPARE(cw.reserveSpace(), false);
     }
 
+    // ── autohideMode ──────────────────────────────────────────────────────
+
+    // A config written before dodge existed must keep behaving as it did:
+    // the legacy boolean decides the mode when autohideMode is absent
+    void test_autohideModeFallsBackToLegacyBool()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohide":true})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideMode(), QStringLiteral("always"));
+        QCOMPARE(cw.autohide(), true);
+    }
+
+    void test_autohideModeDefaultsToNever()
+    {
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideMode(), QStringLiteral("never"));
+        QCOMPARE(cw.autohide(), false);
+    }
+
+    // An explicit mode wins over the legacy boolean, however stale that is
+    void test_autohideModeOverridesLegacyBool()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohide":true,"autohideMode":"dodge"})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideMode(), QStringLiteral("dodge"));
+        // dodge is not "always", so the legacy accessor must report false
+        QCOMPARE(cw.autohide(), false);
+    }
+
+    // A junk mode must not leave the dock in an undefined state
+    void test_autohideModeRejectsUnknownValue()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohideMode":"sideways"})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideMode(), QStringLiteral("never"));
+    }
+
+    // Writing the mode must keep the legacy key in step, so anything else
+    // reading the file (or an older build) still sees the right thing
+    void test_setAutohideMode_keepsLegacyKeyInStep()
+    {
+        ConfigWatcher cw;
+        cw.setAutohideMode(QStringLiteral("always"));
+        cw.reload();
+        QCOMPARE(cw.autohideMode(), QStringLiteral("always"));
+        QCOMPARE(cw.autohide(), true);
+
+        cw.setAutohideMode(QStringLiteral("dodge"));
+        cw.reload();
+        QCOMPARE(cw.autohideMode(), QStringLiteral("dodge"));
+        QCOMPARE(cw.autohide(), false);
+    }
+
+    // The legacy setter must still work and map onto the new modes
+    void test_setAutohide_mapsOntoModes()
+    {
+        ConfigWatcher cw;
+        cw.setAutohide(true);
+        QCOMPARE(cw.autohideMode(), QStringLiteral("always"));
+        cw.setAutohide(false);
+        QCOMPARE(cw.autohideMode(), QStringLiteral("never"));
+    }
+
+    // ── layer ─────────────────────────────────────────────────────────────
+
+    // Defaults to "top": a dock stacked below ordinary windows is invisible
+    // over a maximised one, which makes auto-hide and dodge pointless
+    void test_layerDefaultsToTop()
+    {
+        ConfigWatcher cw;
+        QCOMPARE(cw.layer(), QStringLiteral("top"));
+    }
+
+    void test_layerReadFromConfig()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"layer":"bottom"})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.layer(), QStringLiteral("bottom"));
+    }
+
+    void test_layerRejectsUnknownValue()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"layer":"somewhere"})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.layer(), QStringLiteral("top"));
+    }
+
     // Verify that a corrupt JSON file falls back to defaults without crashing
     void test_fallsBackOnCorruptJson()
     {

@@ -61,6 +61,13 @@ class ConfigWatcher : public QObject {
     Q_PROPERTY(int dockWindowThickness READ dockWindowThickness NOTIFY configChanged)
 
     // ── Behaviour ─────────────────────────────────────────────────────────
+    // "never"  — dock always shown, reserves its strip (the default)
+    // "always"  — classic auto-hide: hidden until the cursor reaches the edge
+    // "dodge"   — shown over the desktop, hides only while a window actually
+    //             overlaps the dock's strip, and comes back when it doesn't
+    Q_PROPERTY(QString autohideMode READ autohideMode NOTIFY configChanged)
+    // Legacy boolean, kept so old configs and existing bindings keep working.
+    // Equivalent to autohideMode === "always".
     Q_PROPERTY(bool autohide READ autohide NOTIFY configChanged)
     // Whether the compositor should keep the dock's strip clear of other
     // windows. Ignored while autohide is on — a dock that gets out of the way
@@ -117,6 +124,7 @@ public:
     int dockReservedThickness() const;
     int dockWindowThickness() const;
 
+    QString autohideMode() const;
     bool autohide() const;
     bool reserveSpace() const;
     int autohideDelayMs() const;
@@ -149,6 +157,7 @@ public:
     Q_INVOKABLE void setHoverLiftPx(int px);
     Q_INVOKABLE void setBackgroundOpacity(double v);
     Q_INVOKABLE void setAutohide(bool on);
+    Q_INVOKABLE void setAutohideMode(const QString &mode);
     Q_INVOKABLE void setAutohideDelayMs(int ms);
     Q_INVOKABLE void setReserveSpace(bool on);
     Q_INVOKABLE void setIconBgShape(const QString &shape);

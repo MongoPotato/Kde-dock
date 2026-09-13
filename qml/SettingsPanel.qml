@@ -227,13 +227,13 @@ Window {
 
                 // ── Reserve screen space ──────────────────────────────────
                 RowLayout { spacing: 12; Layout.fillWidth: true
-                    enabled: !config.autohide
+                    enabled: config.autohideMode === "never"
                     opacity: enabled ? 1.0 : 0.45
                     ColumnLayout { spacing: 2
                         Text { text: "Reserve screen space"; color: "white"; font.pixelSize: 13 }
                         Text {
-                            text: config.autohide
-                                  ? "Not reserved while auto-hide is on"
+                            text: config.autohideMode !== "never"
+                                  ? "Not reserved unless the dock is always visible"
                                   : "Keeps windows out of the dock's "
                                     + config.dockReservedThickness + " px strip"
                             color: "#888"; font.pixelSize: 11
@@ -246,22 +246,41 @@ Window {
                     }
                 }
 
-                // ── Auto-hide ─────────────────────────────────────────────
+                // ── Dock visibility ───────────────────────────────────────
                 RowLayout { spacing: 12; Layout.fillWidth: true
                     ColumnLayout { spacing: 2
-                        Text { text: "Auto-hide dock";                        color: "white"; font.pixelSize: 13 }
-                        Text { text: "Hides once the cursor leaves the icons"; color: "#888";  font.pixelSize: 11 }
+                        Text { text: "Dock visibility"; color: "white"; font.pixelSize: 13 }
+                        Text {
+                            text: {
+                                switch (config.autohideMode) {
+                                case "always": return "Hidden until the cursor reaches the edge"
+                                case "dodge":  return "Hides only while a window covers the dock"
+                                default:       return "Always on screen"
+                                }
+                            }
+                            color: "#888"; font.pixelSize: 11
+                        }
                     }
                     Item { Layout.fillWidth: true }
-                    Switch {
-                        checked: config.autohide
-                        onToggled: settings.applyAutohide(checked)
+                    ComboBox {
+                        id: visibilityMode
+                        Layout.minimumWidth: 190
+                        model: ["Always visible", "Hide when in the way", "Always auto-hide"]
+                        readonly property var modeKeys: ["never", "dodge", "always"]
+                        currentIndex: modeKeys.indexOf(config.autohideMode) >= 0
+                                      ? modeKeys.indexOf(config.autohideMode) : 0
+                        background: Rectangle { color: "#3a3a5e"; radius: 4; border.color: "#555577"; border.width: 1 }
+                        contentItem: Text {
+                            text: parent.displayText; color: "white"; font.pixelSize: 13
+                            leftPadding: 8; verticalAlignment: Text.AlignVCenter
+                        }
+                        onActivated: settings.applyAutohideMode(modeKeys[currentIndex])
                     }
                 }
 
                 // ── Auto-hide delay ───────────────────────────────────────
                 RowLayout { spacing: 12; Layout.fillWidth: true
-                    enabled: config.autohide
+                    enabled: config.autohideMode !== "never"
                     opacity: enabled ? 1.0 : 0.45
                     ColumnLayout { spacing: 2
                         Text { text: "Auto-hide delay"; color: "white"; font.pixelSize: 13 }

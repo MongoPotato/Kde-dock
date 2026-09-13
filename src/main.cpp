@@ -109,11 +109,33 @@ int main(int argc, char *argv[])
     //                           neither reserved nor interactive
     // Auto-hide reserves nothing: a dock that gets out of the way by itself
     // has no business permanently carving out the screen edge.
+    // The dock rectangle in screen coordinates, for dodge mode: TaskTracker
+    // hands it to the KWin script, which reports whether any window overlaps it.
+    auto dockRect = [&]() -> QRect {
+        QScreen *scr = window.screen();
+        if (!scr) return QRect();
+        const QRect g = scr->geometry();
+        const int t = config.dockReservedThickness();
+        const QString pos = config.position();
+        if (pos == QStringLiteral("top"))   return QRect(g.x(), g.y(), g.width(), t);
+        if (pos == QStringLiteral("left"))  return QRect(g.x(), g.y(), t, g.height());
+        if (pos == QStringLiteral("right")) return QRect(g.right() - t + 1, g.y(), t, g.height());
+        return QRect(g.x(), g.bottom() - t + 1, g.width(), t);
+    };
+
     auto applyDockGeometry = [&]() {
-        const bool reserving = config.reserveSpace() && !config.autohide();
+        // Only "never" reserves space. Both auto-hide and dodge need windows
+        // to be allowed into the strip — reserving it would mean nothing ever
+        // overlaps the dock and dodge could never trigger.
+        const bool reserving = config.reserveSpace()
+                            && config.autohideMode() == QStringLiteral("never");
         window.setExclusiveZone(reserving ? config.dockReservedThickness() : 0);
         window.setInteractiveThickness(config.dockReservedThickness());
         window.setThickness(config.dockWindowThickness());
+
+        // Watching costs a KWin script reload, so only do it in dodge mode.
+        taskTracker.setDockRect(config.autohideMode() == QStringLiteral("dodge")
+                                ? dockRect() : QRect());
     };
     applyDockGeometry();
 
@@ -140,8 +162,11 @@ int main(int argc, char *argv[])
     // or a screen is plugged/unplugged — covers both "moved the primary
     // screen in Display settings" and "unplugged the screen the dock was on".
     auto reanchorScreen = [&]() {
-        if (QScreen *target = resolvePreferredScreen())
+        if (QScreen *target = resolvePreferredScreen()) {
             window.reanchorToScreen(target);
+            // The dodge rectangle is screen-relative, so it moves with the dock.
+            applyDockGeometry();
+        }
     };
     QObject::connect(qApp, &QGuiApplication::primaryScreenChanged, &window, reanchorScreen);
     QObject::connect(qApp, &QGuiApplication::screenAdded,   &window, reanchorScreen);
@@ -195,14 +220,15 @@ int main(int argc, char *argv[])
                qPrintable(config.pinnedApps().join(QStringLiteral(", "))));
         qDebug("kdock [debug]: position    : %s", qPrintable(config.position()));
         qDebug("kdock [debug]: layer       : %s", qPrintable(config.layer()));
+        qDebug("kdock [debug]: autohide    : %s", qPrintable(config.autohideMode()));
         qDebug("kdock [debug]: icon size   : %d px", config.iconSize());
         qDebug("kdock [debug]: dock painted: %d px", config.dockVisualThickness());
         qDebug("kdock [debug]: reserved    : %d px%s",
                window.exclusiveZone(),
-               window.exclusiveZone() == 0
-                   ? (config.autohide() ? "  (auto-hide: no space reserved)"
-                                        : "  (reserveSpace off)")
-                   : "");
+               window.exclusiveZone() != 0 ? ""
+                 : config.autohideMode() != QStringLiteral("never")
+                     ? "  (nothing reserved: the dock hides, so windows may use the strip)"
+                     : "  (reserveSpace off)");
         qDebug("kdock [debug]: interactive : %d px of a %d px window",
                window.interactiveThickness(), window.thickness());
         qDebug("kdock [debug]: model rows  : %d", dockModel.rowCount());

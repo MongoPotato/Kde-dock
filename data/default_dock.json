@@ -43,6 +43,7 @@
   },
 
   "autohide":        false,
+  "autohideMode":    "never",
   "autohideDelayMs": 2500,
   "reserveSpace":    true,
   "magnify":         true,

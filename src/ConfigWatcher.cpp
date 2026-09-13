@@ -276,9 +276,24 @@ int ConfigWatcher::dockWindowThickness() const
 
 // ── Behaviour ──────────────────────────────────────────────────────────────
 
+// Falls back to the legacy boolean so a config written before dodge existed
+// keeps behaving exactly as it did.
+QString ConfigWatcher::autohideMode() const
+{
+    const QString v = m_config.value(QStringLiteral("autohideMode")).toString();
+    static const QStringList valid{
+        QStringLiteral("never"), QStringLiteral("always"), QStringLiteral("dodge"),
+    };
+    if (valid.contains(v))
+        return v;
+    return m_config.value(QStringLiteral("autohide")).toBool(false)
+         ? QStringLiteral("always")
+         : QStringLiteral("never");
+}
+
 bool ConfigWatcher::autohide() const
 {
-    return m_config.value(QStringLiteral("autohide")).toBool(false);
+    return autohideMode() == QStringLiteral("always");
 }
 
 bool ConfigWatcher::reserveSpace() const
@@ -380,7 +395,15 @@ void ConfigWatcher::setBackgroundOpacity(double v)
 
 void ConfigWatcher::setAutohide(bool on)
 {
-    m_config[QStringLiteral("autohide")] = on;
+    setAutohideMode(on ? QStringLiteral("always") : QStringLiteral("never"));
+}
+
+void ConfigWatcher::setAutohideMode(const QString &mode)
+{
+    m_config[QStringLiteral("autohideMode")] = mode;
+    // Keep the legacy key in step so downgrading, or any other reader of the
+    // file, still sees the right thing.
+    m_config[QStringLiteral("autohide")] = (mode == QStringLiteral("always"));
     emit configChanged();
     save();
 }
@@ -483,6 +506,7 @@ void ConfigWatcher::resetToDefaults()
             {QStringLiteral("maxSize"), 128},
         }},
         {QStringLiteral("autohide"),        false},
+        {QStringLiteral("autohideMode"),    QStringLiteral("never")},
         {QStringLiteral("autohideDelayMs"), 2500},
         {QStringLiteral("reserveSpace"),    true},
         {QStringLiteral("magnify"),         true},
