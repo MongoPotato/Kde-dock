@@ -16,6 +16,7 @@
 #include "DockModel.h"
 #include "IconProvider.h"
 #include "IconThemeDetector.h"
+#include "LayerShellPopup.h"
 #include "LayerShellWindow.h"
 #include "SettingsController.h"
 #include "TaskTracker.h"
@@ -76,8 +77,13 @@ int main(int argc, char *argv[])
 
     SettingsController settingsController(&config, &iconThemeDetector);
 
+    // ContextMenu.qml instantiates this as `LayerPopup`. It has to be
+    // registered before any QML is loaded.
+    qmlRegisterType<LayerShellPopup>("KDock", 1, 0, "LayerPopup");
+
     LayerShellWindow window;
     window.setAnchor(config.position());
+    window.setLayer(config.layer());
 
     // Resolve which physical screen the dock belongs on: a non-negative
     // screenIndex pins it to that screen (falling back to the primary screen
@@ -188,6 +194,7 @@ int main(int argc, char *argv[])
         qDebug("kdock [debug]: pinned apps : [%s]",
                qPrintable(config.pinnedApps().join(QStringLiteral(", "))));
         qDebug("kdock [debug]: position    : %s", qPrintable(config.position()));
+        qDebug("kdock [debug]: layer       : %s", qPrintable(config.layer()));
         qDebug("kdock [debug]: icon size   : %d px", config.iconSize());
         qDebug("kdock [debug]: dock painted: %d px", config.dockVisualThickness());
         qDebug("kdock [debug]: reserved    : %d px%s",

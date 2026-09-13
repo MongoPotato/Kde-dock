@@ -3,6 +3,7 @@
 // at the requested edge using setWindowFlags and QScreen geometry.
 
 #include "LayerShellWindow.h"
+#include "LayerShellGlobal.h"
 
 #include <QGuiApplication>
 #include <QRegion>
@@ -25,26 +26,6 @@
 // reveals the dock. The surface itself keeps its full size — only this band
 // along the anchored edge accepts pointer events while hidden.
 static constexpr int kRevealStripPx = 2;
-
-// ── Wayland registry callbacks ─────────────────────────────────────────────
-
-static void registryGlobal(void *data, wl_registry *registry,
-                            uint32_t name, const char *interface, uint32_t version)
-{
-    auto *self = static_cast<LayerShellWindow *>(data);
-    if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
-        self->m_layerShell = static_cast<zwlr_layer_shell_v1 *>(
-            wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface,
-                             qMin(version, 4u)));
-    }
-}
-
-static void registryGlobalRemove(void *, wl_registry *, uint32_t) {}
-
-static const wl_registry_listener s_registryListener = {
-    registryGlobal,
-    registryGlobalRemove,
-};
 
 // ── Layer-surface event callbacks ──────────────────────────────────────────
 
@@ -73,6 +54,14 @@ static const zwlr_layer_surface_v1_listener s_layerSurfaceListener = {
     layerSurfaceClosed,
 };
 
+static zwlr_layer_shell_v1_layer layerEnum(const QString &name)
+{
+    if (name == QStringLiteral("background")) return ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND;
+    if (name == QStringLiteral("bottom"))     return ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM;
+    if (name == QStringLiteral("overlay"))    return ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY;
+    return ZWLR_LAYER_SHELL_V1_LAYER_TOP;
+}
+
 // ── LayerShellWindow ───────────────────────────────────────────────────────
 
 LayerShellWindow::LayerShellWindow()
@@ -96,24 +85,15 @@ LayerShellWindow::~LayerShellWindow()
 {
     if (m_layerSurface)
         zwlr_layer_surface_v1_destroy(m_layerSurface);
-    if (m_layerShell)
-        zwlr_layer_shell_v1_destroy(m_layerShell);
+    // m_layerShell is owned by LayerShellGlobal and shared with popups.
 }
 
 void LayerShellWindow::detectWayland()
 {
-    QPlatformNativeInterface *ni = QGuiApplication::platformNativeInterface();
-    if (!ni) return;
-
-    auto *display = static_cast<wl_display *>(
-        ni->nativeResourceForIntegration("wl_display"));
-    if (!display) return;
-
-    m_isWayland = true;
-
-    wl_registry *registry = wl_display_get_registry(display);
-    wl_registry_add_listener(registry, &s_registryListener, this);
-    wl_display_roundtrip(display);
+    // LayerShellGlobal owns the registry round-trip; the dock and its popups
+    // share the one bound zwlr_layer_shell_v1.
+    m_isWayland  = LayerShellGlobal::isWayland();
+    m_layerShell = LayerShellGlobal::shell();
 }
 
 void LayerShellWindow::showEvent(QShowEvent *event)
@@ -161,12 +141,14 @@ void LayerShellWindow::setupWaylandLayerSurface()
             ni->nativeResourceForScreen("wl_output", screen()));
     }
 
-    // LAYER_BOTTOM places the dock below regular windows so that context menus
-    // and settings panels (xdg-toplevel) can appear above it. The exclusive
-    // zone still prevents tiled windows from occupying the dock area.
+    // The dock defaults to the TOP layer, in front of ordinary windows — a
+    // dock behind them can't be seen over a maximised window, which makes
+    // both auto-hide and dodge pointless. This used to be LAYER_BOTTOM purely
+    // so the context menu could appear above the dock; menus now get their own
+    // OVERLAY surface (LayerShellPopup) and no longer need that workaround.
     m_layerSurface = zwlr_layer_shell_v1_get_layer_surface(
         m_layerShell, surface, output,
-        ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM,
+        layerEnum(m_layer),
         "kdock");
     if (!m_layerSurface) return;
 
@@ -255,6 +237,11 @@ void LayerShellWindow::applyX11Geometry()
 void LayerShellWindow::setAnchor(const QString &anchor)
 {
     m_anchor = anchor;
+}
+
+void LayerShellWindow::setLayer(const QString &layer)
+{
+    m_layer = layer;
 }
 
 void LayerShellWindow::setThickness(int px)

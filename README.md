@@ -160,6 +160,9 @@ its hide delay) — or edit `dock.json` directly:
 {
   "pinned": ["org.kde.dolphin", "org.kde.konsole"],
   "position": "bottom",        // bottom | top | left | right
+  "layer": "top",              // compositor stacking layer:
+                               // background | bottom | top | overlay.
+                               // "top" keeps the dock in front of windows.
   "iconSize": 52,
   "padding": 8,
   "spacing": 6,

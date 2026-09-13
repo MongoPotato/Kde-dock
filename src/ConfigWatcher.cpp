@@ -81,6 +81,20 @@ QString ConfigWatcher::position() const
     return m_config.value(QStringLiteral("position")).toString(QStringLiteral("bottom"));
 }
 
+// Which compositor layer the dock's surface goes on. Defaults to "top": a
+// dock stacked below ordinary windows disappears behind any maximised one,
+// which makes both auto-hide and dodge useless.
+QString ConfigWatcher::layer() const
+{
+    const QString v = m_config.value(QStringLiteral("layer"))
+                          .toString(QStringLiteral("top"));
+    static const QStringList valid{
+        QStringLiteral("background"), QStringLiteral("bottom"),
+        QStringLiteral("top"),        QStringLiteral("overlay"),
+    };
+    return valid.contains(v) ? v : QStringLiteral("top");
+}
+
 int ConfigWatcher::iconSize() const
 {
     return m_config.value(QStringLiteral("iconSize")).toInt(52);
@@ -438,6 +452,7 @@ void ConfigWatcher::resetToDefaults()
             QStringLiteral("org.kde.kate"),
         }},
         {QStringLiteral("position"), QStringLiteral("bottom")},
+        {QStringLiteral("layer"), QStringLiteral("top")},
         {QStringLiteral("iconSize"), 52},
         {QStringLiteral("padding"), 8},
         {QStringLiteral("spacing"), 6},

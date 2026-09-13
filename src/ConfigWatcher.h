@@ -17,6 +17,9 @@ class ConfigWatcher : public QObject {
 
     // ── Position & geometry ───────────────────────────────────────────────
     Q_PROPERTY(QString position READ position NOTIFY configChanged)
+    // Compositor stacking layer: background | bottom | top | overlay.
+    // "top" puts the dock in front of ordinary windows.
+    Q_PROPERTY(QString layer READ layer NOTIFY configChanged)
     Q_PROPERTY(int iconSize READ iconSize NOTIFY configChanged)
     Q_PROPERTY(int padding READ padding NOTIFY configChanged)
     Q_PROPERTY(int spacing READ spacing NOTIFY configChanged)
@@ -83,6 +86,7 @@ public:
 
     // ── Accessors ─────────────────────────────────────────────────────────
     QString position() const;
+    QString layer() const;
     int iconSize() const;
     int padding() const;
     int spacing() const;

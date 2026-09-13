@@ -1,11 +1,19 @@
 // ContextMenu.qml — right-click popup.
-// Implemented as a Window so it appears outside the thin dock strip.
+//
+// LayerPopup, not Window: a plain QML Window declared inside the dock gets the
+// dock's layer surface as its transientParent, and KWin then stacked the menu
+// with the dock's layer instead of above it — the menu opened UNDERNEATH the
+// dock (issue #2). LayerPopup gives the menu its own layer surface on the
+// OVERLAY layer, above the dock whatever layer the dock itself is on. It falls
+// back to an ordinary window where layer-shell isn't available.
+//
 // Call openAt(screenX, screenY) after setting mode / appId.
 
 import QtQuick 2.15
 import QtQuick.Controls 2.15
+import KDock 1.0
 
-Window {
+LayerPopup {
     id: root
 
     property string mode:  "dock"
@@ -16,8 +24,8 @@ Window {
     readonly property bool   appIsPinned:    appId !== "" ? dockModel.isAppPinned(appId)       : false
     readonly property string appDisplayName: appId !== "" ? dockModel.displayNameForApp(appId) : ""
 
-    flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-    color: "transparent"
+    // flags and color are set by LayerShellPopup — which of them applies
+    // depends on whether the layer-shell path or the fallback is in use.
     width:  240
     height: menuCol.implicitHeight + 10
 
@@ -29,8 +37,8 @@ Window {
     // "really tricky to get the option menu up" flash.
     property bool _everActive: false
 
-    onActiveChanged: {
-        if (active)
+    onPopupActiveChanged: {
+        if (popupActive)
             _everActive = true
         else if (_everActive && visible)
             visible = false   // genuine click-outside: we had focus and lost it
@@ -82,8 +90,11 @@ Window {
         if (px + root.width > scr.virtualX + scr.width)  px = scr.virtualX + scr.width - root.width - 8
         if (px < scr.virtualX)                            px = scr.virtualX + 8
         if (py < scr.virtualY)                            py = sy + 8
-        root.x = px
-        root.y = py
+        // popupX/popupY, not x/y: a layer surface is placed by margins, so
+        // Qt's own window position means nothing to it. The fallback path
+        // mirrors these onto x/y.
+        root.popupX = px
+        root.popupY = py
     }
 
     // Safety net for the case above: if the menu never gets focus, nothing

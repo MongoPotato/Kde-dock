@@ -28,6 +28,8 @@ endif()
 
 set(SOURCES
     src/main.cpp
+    src/LayerShellGlobal.cpp
+    src/LayerShellPopup.cpp
     src/LayerShellWindow.cpp
     src/DockModel.cpp
     src/TaskTracker.cpp

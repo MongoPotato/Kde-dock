@@ -32,6 +32,11 @@ public:
     void setAnchor(const QString &anchor);
     QString anchor() const { return m_anchor; }
 
+    // "background" | "bottom" | "top" | "overlay". Only read when the layer
+    // surface is created, so a change needs reanchorToScreen() to take effect.
+    void setLayer(const QString &layer);
+    QString layer() const { return m_layer; }
+
     void setThickness(int px);
     int thickness() const { return m_thickness; }
 
@@ -94,6 +99,7 @@ private:
     void applyInputMask();
 
     QString m_anchor { QStringLiteral("bottom") };
+    QString m_layer { QStringLiteral("top") };
     int m_thickness = 72;
     int m_exclusiveZone = 72;
     int m_interactiveThickness = 0;   // 0 = whole window
