@@ -43,6 +43,12 @@ class LayerShellPopup : public QQuickWindow {
     // no onActiveChanged on LayerPopup. Re-export it under our own name.
     Q_PROPERTY(bool popupActive READ isActive NOTIFY popupActiveChanged)
 
+    // Exclusive popups close each other: showing one hides every other
+    // exclusive popup. Without this, right-clicking an icon and then the bar
+    // left both menus stacked on screen. Tooltips set this false — they are
+    // not menus and must not dismiss one.
+    Q_PROPERTY(bool exclusive READ exclusive WRITE setExclusive NOTIFY exclusiveChanged)
+
 public:
     explicit LayerShellPopup(QWindow *parent = nullptr);
     ~LayerShellPopup() override;
@@ -54,9 +60,13 @@ public:
 
     bool usingLayerShell() const { return m_useLayerShell; }
 
+    bool exclusive() const { return m_exclusive; }
+    void setExclusive(bool on);
+
 signals:
     void popupPositionChanged();
     void popupActiveChanged();
+    void exclusiveChanged();
 
 protected:
     void exposeEvent(QExposeEvent *event) override;
@@ -69,6 +79,7 @@ private:
     void applyLayerGeometry();
 
     bool m_useLayerShell = false;
+    bool m_exclusive     = true;
     int  m_popupX = 0;
     int  m_popupY = 0;
 

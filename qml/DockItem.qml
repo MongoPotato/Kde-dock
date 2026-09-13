@@ -276,7 +276,9 @@ Item {
                 dockModel.launchApp(root.appId)
                 clickBounceAnim.restart()
             } else {
-                const sp = mouse.mapToGlobal(event.x, event.y)
+                // See DockBar: a layer surface has no usable global mapping.
+                const p = mouse.mapToItem(null, event.x, event.y)
+                const sp = dockWindow.mapToScreen(p.x, p.y)
                 contextMenu.mode  = "app"
                 contextMenu.appId = root.appId
                 contextMenu.openAt(sp.x, sp.y)

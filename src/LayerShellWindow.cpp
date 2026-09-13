@@ -234,6 +234,32 @@ void LayerShellWindow::applyX11Geometry()
     }
 }
 
+QRect LayerShellWindow::dockScreenRect() const
+{
+    QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen();
+    if (!scr) return QRect();
+
+    const QRect g = scr->geometry();
+    const int w = width()  > 0 ? width()  : g.width();
+    const int h = height() > 0 ? height() : g.height();
+
+    // The surface is pinned to one edge and stretched along it, so its origin
+    // follows from the screen geometry and our own size.
+    if (m_anchor == QStringLiteral("top"))
+        return QRect(g.x(), g.y(), g.width(), h);
+    if (m_anchor == QStringLiteral("left"))
+        return QRect(g.x(), g.y(), w, g.height());
+    if (m_anchor == QStringLiteral("right"))
+        return QRect(g.x() + g.width() - w, g.y(), w, g.height());
+    return QRect(g.x(), g.y() + g.height() - h, g.width(), h);
+}
+
+QPoint LayerShellWindow::mapToScreen(qreal x, qreal y) const
+{
+    const QRect r = dockScreenRect();
+    return QPoint(r.x() + qRound(x), r.y() + qRound(y));
+}
+
 void LayerShellWindow::setAnchor(const QString &anchor)
 {
     m_anchor = anchor;
@@ -298,6 +324,7 @@ void LayerShellWindow::applyGeometryUpdate()
 void LayerShellWindow::resizeEvent(QResizeEvent *event)
 {
     QQuickView::resizeEvent(event);
+    emit dockScreenRectChanged();
     // The mask is expressed in window coordinates, so it has to be recomputed
     // whenever the compositor hands us a new size.
     applyInputMask();
@@ -367,4 +394,5 @@ void LayerShellWindow::reanchorToScreen(QScreen *targetScreen)
 
     // Recreating the surface reset its input region to "everything".
     applyInputMask();
+    emit dockScreenRectChanged();
 }

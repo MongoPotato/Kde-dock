@@ -14,7 +14,9 @@
 //   On X11/XWayland the flag creates an override-redirect window that we
 //   position at the screen edge manually.
 
+#include <QPoint>
 #include <QQuickView>
+#include <QRect>
 #include <QRegion>
 #include <QString>
 
@@ -73,6 +75,21 @@ public:
 
     void setBlurEnabled(bool enabled);
 
+    // The dock's rectangle in global screen coordinates.
+    //
+    // A Wayland client is never told where its own surface ended up, so Qt
+    // believes this window sits at (0,0) and QQuickItem::mapToGlobal() returns
+    // surface-local coordinates dressed up as screen ones. Anything that has
+    // to place another surface relative to the dock — a context menu at the
+    // click point, a tooltip above an icon — has to go through here instead.
+    // We can compute it exactly because layer-shell pins us to a known edge
+    // of a known output.
+    Q_PROPERTY(QRect dockScreenRect READ dockScreenRect NOTIFY dockScreenRectChanged)
+    QRect dockScreenRect() const;
+
+    // Item coordinates inside the dock → global screen coordinates.
+    Q_INVOKABLE QPoint mapToScreen(qreal x, qreal y) const;
+
     // Moves the dock onto a different output, e.g. when KDE's primary screen
     // changes or the screen the dock was on gets unplugged. Layer-shell binds
     // a surface to one wl_output for life, so on Wayland this tears down and
@@ -82,6 +99,9 @@ public:
 
     // Public so the C-style Wayland registry callback can write to it
     zwlr_layer_shell_v1 *m_layerShell = nullptr;
+
+signals:
+    void dockScreenRectChanged();
 
 protected:
     void showEvent(QShowEvent *event) override;

@@ -112,8 +112,12 @@ Item {
     Component.onCompleted: {
         // Match the real Wayland surface to the initial visibility so a
         // dock that starts auto-hidden doesn't block the screen edge.
-        if (typeof dockWindow !== "undefined")
+        if (typeof dockWindow !== "undefined") {
             dockWindow.setRevealed(root.dockVisible)
+            // Everything that places a menu or tooltip is measured from this
+            // rectangle, so it's worth being able to see it in --debug.
+            console.log("[kdock] dock screen rect:", dockWindow.dockScreenRect)
+        }
     }
 
     onDockVisibleChanged: {

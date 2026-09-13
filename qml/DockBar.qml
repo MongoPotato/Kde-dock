@@ -81,7 +81,11 @@ Item {
         gesturePolicy: TapHandler.ReleaseWithinBounds
 
         onSingleTapped: (eventPoint, button) => {
-            const sp = root.mapToGlobal(eventPoint.position.x, eventPoint.position.y)
+            // dockWindow.mapToScreen, not mapToGlobal: Qt has no idea where a
+            // layer surface actually sits, so mapToGlobal returns coordinates
+            // relative to the dock and the menu landed nowhere near the click.
+            const sp = dockWindow.mapToScreen(eventPoint.position.x,
+                                              eventPoint.position.y)
             barContextMenu.mode = "dock"
             barContextMenu.openAt(sp.x, sp.y)
         }

@@ -1,24 +1,25 @@
-// Tooltip renders as a separate OS window so it is never clipped by the
-// thin dock layer-shell surface. It positions itself above/beside the icon
-// using mapToGlobal so screen coordinates are always correct.
+// Tooltip renders as its own layer surface so it is never clipped by the thin
+// dock strip and is never stacked underneath the dock (the dock sits on the
+// TOP layer; an ordinary window would go behind it).
+//
+// It positions itself above/beside the icon using dockWindow.mapToScreen():
+// Qt does not know where a layer surface is on screen, so mapToGlobal() would
+// return dock-relative coordinates.
 
 import QtQuick 2.15
 import QtQuick.Window 2.15
+import KDock 1.0
 
-Window {
+LayerPopup {
     id: root
 
     property string text: ""
     property string dockPosition: "bottom"
     property Item   parentItem: null
 
-    // WindowTransparentForInput matters for auto-hide: the tooltip is a
-    // separate top-level window that pops up right next to the cursor, and
-    // without this it can take the pointer off the dock surface, which reads
-    // as "cursor left the dock" and starts a hide countdown.
-    flags:  Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-            | Qt.WindowTransparentForInput
-    color:  "transparent"
+    // A tooltip is not a menu: it must not dismiss an open context menu.
+    exclusive: false
+
     width:  label.implicitWidth + 20
     height: label.implicitHeight + 12
 
@@ -26,8 +27,6 @@ Window {
         if (!parentItem || text === "") return
         _reposition()
         visible = true
-        raise()
-        opacity = 0
         fadeIn.restart()
     }
 
@@ -36,49 +35,59 @@ Window {
     }
 
     function _reposition() {
-        const sp = parentItem.mapToGlobal(0, 0)
+        const local = parentItem.mapToItem(null, 0, 0)
+        const sp = dockWindow.mapToScreen(local.x, local.y)
         const pw = parentItem.width
         const ph = parentItem.height
         const gap = 8
         switch (dockPosition) {
         case "bottom":
-            x = Math.round(sp.x + pw / 2 - width / 2)
-            y = sp.y - height - gap
+            root.popupX = Math.round(sp.x + pw / 2 - width / 2)
+            root.popupY = sp.y - height - gap
             break
         case "top":
-            x = Math.round(sp.x + pw / 2 - width / 2)
-            y = sp.y + ph + gap
+            root.popupX = Math.round(sp.x + pw / 2 - width / 2)
+            root.popupY = sp.y + ph + gap
             break
         case "left":
-            x = sp.x + pw + gap
-            y = Math.round(sp.y + ph / 2 - height / 2)
+            root.popupX = sp.x + pw + gap
+            root.popupY = Math.round(sp.y + ph / 2 - height / 2)
             break
         case "right":
-            x = sp.x - width - gap
-            y = Math.round(sp.y + ph / 2 - height / 2)
+            root.popupX = sp.x - width - gap
+            root.popupY = Math.round(sp.y + ph / 2 - height / 2)
             break
         }
     }
 
-    NumberAnimation { id: fadeIn;  target: root; property: "opacity"; to: 1.0; duration: 120 }
-    NumberAnimation {
-        id: fadeOut; target: root; property: "opacity"; to: 0.0; duration: 100
-        onStopped: if (root.opacity < 0.01) root.visible = false
-    }
-
-    Rectangle {
+    // Fade the CONTENT, not the window. Animating a Window's opacity makes
+    // Qt's Wayland backend log "This plugin does not support setting window
+    // opacity" on every frame of the animation, and does nothing visible.
+    Item {
+        id: content
         anchors.fill: parent
-        color:  "#dd101018"
-        radius: 6
-        border.color: "#555577"
-        border.width: 1
+        opacity: 0
 
-        Text {
-            id: label
-            anchors.centerIn: parent
-            text: root.text
-            color: "white"
-            font.pixelSize: 13
+        NumberAnimation { id: fadeIn;  target: content; property: "opacity"; to: 1.0; duration: 120 }
+        NumberAnimation {
+            id: fadeOut; target: content; property: "opacity"; to: 0.0; duration: 100
+            onStopped: if (content.opacity < 0.01) root.visible = false
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color:  "#dd101018"
+            radius: 6
+            border.color: "#555577"
+            border.width: 1
+
+            Text {
+                id: label
+                anchors.centerIn: parent
+                text: root.text
+                color: "white"
+                font.pixelSize: 13
+            }
         }
     }
 }

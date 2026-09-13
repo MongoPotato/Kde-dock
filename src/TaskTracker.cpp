@@ -103,10 +103,15 @@ static const char kWinScript[] = R"js(
 
     function coversDock(w) {
         if (!w || !dockRect) return false;
-        // Skip anything that isn't a real, visible application window: our own
-        // layer surface, the desktop, panels, and minimised windows.
-        if (w.minimized || w.skipTaskbar || w.desktopWindow) return false;
-        if (w.normalWindow === false) return false;
+        // Must be a real application window. Testing for normalWindow being
+        // TRUE, not merely "not false", is what keeps panels, docks, popups,
+        // notifications, OSDs and our own layer surface out of the count —
+        // those either report false or don't have the property at all.
+        if (!w.normalWindow) return false;
+        if (w.desktopWindow || w.skipTaskbar) return false;
+        // Not currently on screen. `hidden` covers windows KWin has taken off
+        // screen for reasons other than minimising.
+        if (w.minimized || w.hidden) return false;
         if (!onCurrentDesktop(w)) return false;
         var g = w.frameGeometry;
         if (!g) return false;
@@ -116,10 +121,16 @@ static const char kWinScript[] = R"js(
 
     function recomputeObstruction() {
         if (!dockRect) return;
-        var list = workspace.windowList ? workspace.windowList() : [];
         var hit = false;
-        for (var k = 0; k < list.length; k++) {
-            if (coversDock(list[k])) { hit = true; break; }
+        // "Show desktop" doesn't minimise anything — KWin just stops painting
+        // the windows — so every window still reports its normal geometry and
+        // the dock stayed hidden over an empty desktop. Nothing is covering
+        // the dock in this mode, by definition.
+        if (!workspace.showingDesktop) {
+            var list = workspace.windowList ? workspace.windowList() : [];
+            for (var k = 0; k < list.length; k++) {
+                if (coversDock(list[k])) { hit = true; break; }
+            }
         }
         if (hit !== lastObstructed) {
             lastObstructed = hit;
@@ -139,6 +150,28 @@ static const char kWinScript[] = R"js(
     workspace.windowAdded.connect(function(w) { watchGeometry(w); recomputeObstruction(); });
     if (workspace.currentDesktopChanged)
         workspace.currentDesktopChanged.connect(recomputeObstruction);
+    if (workspace.showingDesktopChanged)
+        workspace.showingDesktopChanged.connect(recomputeObstruction);
+
+    // Last-resort resync: KWin exposes no single signal covering every way a
+    // window can stop covering the dock (tiling scripts, activities, an
+    // effect moving something), and a dock stuck hidden over a clear desktop
+    // is much worse than a two-second delay in noticing.
+    // Guarded: QTimer isn't constructible in every KWin scripting version, and
+    // a throw here would abort the rest of the script — including the initial
+    // recomputeObstruction() below, leaving dodge permanently stuck.
+    if (dockRect) {
+        try {
+            var resync = new QTimer();
+            resync.interval = 2000;
+            resync.repeat = true;
+            resync.timeout.connect(recomputeObstruction);
+            resync.start();
+        } catch (e) {
+            print('kdock: periodic obstruction resync unavailable: ' + e);
+        }
+    }
+
     recomputeObstruction();
 })();
 )js";

@@ -4,6 +4,7 @@
 #include "LayerShellGlobal.h"
 
 #include <QExposeEvent>
+#include <QList>
 #include <QGuiApplication>
 #include <QHideEvent>
 #include <QResizeEvent>
@@ -40,6 +41,9 @@ static const zwlr_layer_surface_v1_listener s_popupListener = {
     popupClosed,
 };
 
+// Every live popup, so an exclusive one can dismiss the others when it opens.
+static QList<LayerShellPopup *> s_popups;
+
 // ── LayerShellPopup ────────────────────────────────────────────────────────
 
 LayerShellPopup::LayerShellPopup(QWindow *parent)
@@ -58,11 +62,33 @@ LayerShellPopup::LayerShellPopup(QWindow *parent)
     setColor(Qt::transparent);
 
     connect(this, &QWindow::activeChanged, this, &LayerShellPopup::popupActiveChanged);
+
+    // Two menus should never be on screen at once: opening one closes any
+    // other. Done here rather than in QML because the menus are separate
+    // instances scattered across DockBar and every DockItem, with no shared
+    // scope to coordinate through.
+    connect(this, &QWindow::visibleChanged, this, [this](bool visible) {
+        if (!visible || !m_exclusive) return;
+        for (LayerShellPopup *other : std::as_const(s_popups)) {
+            if (other != this && other->m_exclusive && other->isVisible())
+                other->setVisible(false);
+        }
+    });
+
+    s_popups.append(this);
 }
 
 LayerShellPopup::~LayerShellPopup()
 {
+    s_popups.removeAll(this);
     destroyLayerSurface();
+}
+
+void LayerShellPopup::setExclusive(bool on)
+{
+    if (m_exclusive == on) return;
+    m_exclusive = on;
+    emit exclusiveChanged();
 }
 
 void LayerShellPopup::setPopupX(int x)
