@@ -51,7 +51,7 @@ LayerPopup {
         // layer-shell path focus arrives and leaves on its own as the
         // compositor shuffles it around, and treating that as a click-outside
         // shut the menu again before it could be read.
-        if (!usingLayerShell && _everActive && visible)
+        if (!usingLayerShell && _everActive && visible && !openFloor.running)
             visible = false
     }
 
@@ -60,23 +60,63 @@ LayerPopup {
     // silently replaces one written in the component — so _everActive is reset
     // in openAt() instead, where it can't be overridden.
 
-    // Open above the click point, clamped to the screen the click was on.
+    // Where the click happened, in screen coordinates. Position is a BINDING
+    // on this rather than something computed once at open time: the menu's
+    // height depends on which entries this mode shows, and that settles a
+    // frame or two after openAt(). Computing the position imperatively meant
+    // clamping against a stale height, which is how the taller icon menu ended
+    // up overlapping the dock even though the maths said it shouldn't.
+    property int _anchorX: 0
+    property int _anchorY: 0
+
+    readonly property rect _dockRect: dockWindow.dockScreenRect
+
+    popupX: {
+        const scr = _screenAt(_anchorX, _anchorY)
+        const gap = 8
+        let px = _anchorX - gap
+        // Keep clear of the dock when it runs down a side of the screen.
+        if (config.position === "left")
+            px = Math.max(px, _dockRect.x + _dockRect.width + gap)
+        else if (config.position === "right")
+            px = Math.min(px, _dockRect.x - root.width - gap)
+        if (px + root.width > scr.virtualX + scr.width)
+            px = scr.virtualX + scr.width - root.width - gap
+        if (px < scr.virtualX) px = scr.virtualX + gap
+        return px
+    }
+
+    popupY: {
+        const scr = _screenAt(_anchorX, _anchorY)
+        const gap = 8
+        let py = _anchorY - root.height - gap
+        // The whole menu must sit outside the dock, not merely above the click
+        // point: right-clicking an icon puts the click INSIDE the dock, so
+        // "above the click" still left the lower entries over the dock strip.
+        // For a bottom dock the menu's bottom edge lands gap px above the
+        // dock's top edge; for a top dock, gap px below its bottom edge.
+        if (config.position === "bottom")
+            py = Math.min(py, _dockRect.y - root.height - gap)
+        else if (config.position === "top")
+            py = Math.max(py, _dockRect.y + _dockRect.height + gap)
+        if (py + root.height > scr.virtualY + scr.height)
+            py = scr.virtualY + scr.height - root.height - gap
+        if (py < scr.virtualY) py = scr.virtualY + gap
+        return py
+    }
+
     function openAt(screenX, screenY) {
         _everActive = false
         _pointerVisited = false
-        // Position BEFORE showing. Showing first and positioning in a
-        // callLater made the menu appear at its previous coordinates for a
-        // frame and jump, which on its own is enough to lose a click.
-        positionSelf(screenX, screenY)
+        _anchorX = screenX
+        _anchorY = screenY
         visible = true
-        Qt.callLater(_settle, screenX, screenY)
+        openFloor.restart()
+        Qt.callLater(_settle)
     }
 
-    // Deferred so the window is actually mapped before we ask to be raised
-    // and activated, and so the re-clamp sees the height this mode's entries
-    // settled on rather than the previous mode's.
-    function _settle(sx, sy) {
-        positionSelf(sx, sy)
+    // Raise and activate only once the window is actually mapped.
+    function _settle() {
         raise()
         requestActivate()
     }
@@ -95,51 +135,18 @@ LayerPopup {
         return screens[0]
     }
 
-    function positionSelf(sx, sy) {
-        const scr = _screenAt(sx, sy)
-        const gap = 8
-        let px = sx - gap
-        let py = sy - root.height - gap
+    // Nothing may close this menu for the first half second, whatever else
+    // happens — no stray focus change, no hover glitch, no compositor event.
+    Timer { id: openFloor; interval: 500; repeat: false }
 
-        // Push the menu entirely clear of the dock, rather than merely above
-        // the click point. Clicking an icon puts the click inside the dock, so
-        // "above the click" still left the lower entries overlapping the dock
-        // strip — and whichever of the two the compositor draws on top, half
-        // the menu was unusable. Measuring from the dock's own rectangle means
-        // the menu never shares pixels with it.
-        const d = dockWindow.dockScreenRect
-        switch (config.position) {
-        case "top":   py = Math.max(py, d.y + d.height + gap); break
-        case "left":  px = Math.max(px, d.x + d.width  + gap); break
-        case "right": px = Math.min(px, d.x - root.width - gap); break
-        default:      py = Math.min(py, d.y - root.height - gap); break
-        }
-
-        // Then keep it on the screen.
-        if (px + root.width > scr.virtualX + scr.width)  px = scr.virtualX + scr.width - root.width - gap
-        if (px < scr.virtualX)                            px = scr.virtualX + gap
-        if (py + root.height > scr.virtualY + scr.height) py = scr.virtualY + scr.height - root.height - gap
-        if (py < scr.virtualY)                            py = scr.virtualY + gap
-
-        // popupX/popupY, not x/y: a layer surface is placed by margins, so
-        // Qt's own window position means nothing to it. The fallback path
-        // mirrors these onto x/y.
-        root.popupX = px
-        root.popupY = py
-    }
-
-    // With focus-loss dismissal gone on the layer-shell path, the cursor is
-    // what closes the menu. Two very different situations, so two very
-    // different timeouts:
+    // After that the cursor decides, and the trigger is deliberately far out
+    // of the way: while the cursor has not yet reached the menu the user is
+    // still travelling towards it or reading it from where they are, and the
+    // menu simply stays. Only once they have been on it and moved off does a
+    // short countdown start.
     //
-    //   not yet visited — the user is still moving towards the menu, or just
-    //                     reading it from where they are. Give them a long
-    //                     while; the previous flat 4 s read as the menu
-    //                     vanishing before they could react.
-    //   visited, now away — they have used it and moved on. Close promptly.
-    //
-    // Opening another menu closes this one too (LayerShellPopup exclusivity),
-    // as does choosing an entry or pressing Escape.
+    // Choosing an entry, pressing Escape, or opening another menu
+    // (LayerShellPopup exclusivity) all close it immediately.
     HoverHandler {
         id: menuHover
         onHoveredChanged: if (hovered) root._pointerVisited = true
@@ -147,8 +154,9 @@ LayerPopup {
 
     Timer {
         id: closeGuard
-        interval: root._pointerVisited ? 1500 : 15000
-        running:  root.visible && !menuHover.hovered
+        interval: 2000
+        running:  root.visible && root._pointerVisited
+                  && !menuHover.hovered && !openFloor.running
         repeat:   false
         onTriggered: root.visible = false
     }

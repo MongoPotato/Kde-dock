@@ -21,7 +21,7 @@
 
 #include <QMap>
 #include <QObject>
-#include <QRect>
+#include <QHash>
 #include <QSet>
 #include <QStringList>
 #include <QTimer>
@@ -50,18 +50,24 @@ public slots:
     Q_SCRIPTABLE void reportWindowUrgent(const QString &uuid, bool urgent)
     { emit windowUrgentChanged(uuid, urgent); }
 
-    // reason is for the log only: it names the window that triggered the
-    // change, which is the difference between "dodge is broken" and "dodge is
-    // reacting to something you didn't expect".
-    Q_SCRIPTABLE void reportDockObstructed(bool obstructed, const QString &reason)
-    { emit dockObstructedChanged(obstructed, reason); }
+    // Full-window state, reported per window on every change — the same
+    // shape as the add/remove/urgency reports above, deliberately.
+    Q_SCRIPTABLE void reportWindowFullSize(const QString &uuid, bool fullSize,
+                                           const QString &outputName)
+    { emit windowFullSizeChanged(uuid, fullSize, outputName); }
+
+    // "Show desktop" hides windows without minimising them, so it can't be
+    // inferred from the per-window state and has to be reported separately.
+    Q_SCRIPTABLE void reportShowingDesktop(bool showing)
+    { emit showingDesktopChanged(showing); }
 
 signals:
     void windowAdded(const QString &uuid, const QString &desktopFile);
     void windowRemoved(const QString &uuid);
     void windowActivated(const QString &uuid);
     void windowUrgentChanged(const QString &uuid, bool urgent);
-    void dockObstructedChanged(bool obstructed, const QString &reason);
+    void windowFullSizeChanged(const QString &uuid, bool fullSize, const QString &outputName);
+    void showingDesktopChanged(bool showing);
 };
 
 class TaskTracker : public QObject {
@@ -82,18 +88,17 @@ public:
 
     Q_PROPERTY(QString activeAppId READ activeAppId NOTIFY activeAppChanged)
 
-    // True while some visible window on the current desktop overlaps the
-    // rectangle the dock occupies. Drives dodge mode: the dock only gets out
-    // of the way when something is actually in its way. Always false until
-    // setDockRect() has been given a rectangle to watch.
+    // True while a full-size (maximised or fullscreen) window is on screen on
+    // the dock's own output, and the desktop isn't being shown. Drives dodge
+    // mode: the dock only gets out of the way when something really is
+    // covering it.
     Q_PROPERTY(bool dockObstructed READ dockObstructed NOTIFY dockObstructionChanged)
 
     bool dockObstructed() const { return m_dockObstructed; }
 
-    // The screen rectangle to watch, in global coordinates. An empty rect
-    // turns obstruction tracking off. Reloads the KWin script when it changes,
-    // since the rectangle is baked into the script.
-    void setDockRect(const QRect &rect);
+    // Name of the output the dock is on, so a maximised window on a second
+    // monitor doesn't hide it. Empty means "don't filter by screen".
+    void setDockScreenName(const QString &name);
 
 signals:
     void runningAppsChanged(const QStringList &appIds);
@@ -109,7 +114,8 @@ private slots:
     void onWindowRemoved(const QString &uuid);
     void onWindowActivated(const QString &uuid);
     void onWindowUrgentChanged(const QString &uuid, bool urgent);
-    void onDockObstructedChanged(bool obstructed, const QString &reason);
+    void onWindowFullSizeChanged(const QString &uuid, bool fullSize, const QString &outputName);
+    void onShowingDesktopChanged(bool showing);
 
 private:
     void        setupKWinScript();
@@ -117,6 +123,7 @@ private:
     void        addWindow(const QString &uuid, const QString &desktopFile);
     void        removeWindow(const QString &uuid);
     void        rebuildRunningApps();
+    void        recomputeObstruction();
     QStringList windowsForApp(const QString &appId) const;
 
     QDBusInterface *m_scripting = nullptr;
@@ -124,8 +131,10 @@ private:
     QTimer          m_pollTimer;
     bool            m_scriptLoaded  = false;
     bool            m_bridgeRegistered = false;
-    QRect           m_dockRect;
     bool            m_dockObstructed = false;
+    bool            m_showingDesktop = false;
+    QString         m_dockScreenName;
+    QHash<QString, QString> m_fullSizeWindows;   // uuid → output name
     int             m_actionCounter = 0;
 
     QMap<QString, QString> m_windowAppIds;   // uuid  → appId

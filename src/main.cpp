@@ -109,20 +109,6 @@ int main(int argc, char *argv[])
     //                           neither reserved nor interactive
     // Auto-hide reserves nothing: a dock that gets out of the way by itself
     // has no business permanently carving out the screen edge.
-    // The dock rectangle in screen coordinates, for dodge mode: TaskTracker
-    // hands it to the KWin script, which reports whether any window overlaps it.
-    auto dockRect = [&]() -> QRect {
-        QScreen *scr = window.screen();
-        if (!scr) return QRect();
-        const QRect g = scr->geometry();
-        const int t = config.dockReservedThickness();
-        const QString pos = config.position();
-        if (pos == QStringLiteral("top"))   return QRect(g.x(), g.y(), g.width(), t);
-        if (pos == QStringLiteral("left"))  return QRect(g.x(), g.y(), t, g.height());
-        if (pos == QStringLiteral("right")) return QRect(g.right() - t + 1, g.y(), t, g.height());
-        return QRect(g.x(), g.bottom() - t + 1, g.width(), t);
-    };
-
     auto applyDockGeometry = [&]() {
         // Only "never" reserves space. Both auto-hide and dodge need windows
         // to be allowed into the strip — reserving it would mean nothing ever
@@ -133,9 +119,9 @@ int main(int argc, char *argv[])
         window.setInteractiveThickness(config.dockReservedThickness());
         window.setThickness(config.dockWindowThickness());
 
-        // Watching costs a KWin script reload, so only do it in dodge mode.
-        taskTracker.setDockRect(config.autohideMode() == QStringLiteral("dodge")
-                                ? dockRect() : QRect());
+        // So a maximised window on another monitor doesn't hide this dock.
+        taskTracker.setDockScreenName(window.screen() ? window.screen()->name()
+                                                      : QString());
     };
     applyDockGeometry();
 

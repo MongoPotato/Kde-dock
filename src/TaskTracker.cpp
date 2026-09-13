@@ -45,12 +45,6 @@ static const char kWinScript[] = R"js(
     var path  = '/WindowTracker';
     var iface = 'org.kde.kdock.WindowTracker';
 
-    // Substituted by TaskTracker::setupKWinScript(): the screen rectangle the
-    // dock occupies, or null when dodge mode isn't in use and no obstruction
-    // tracking is wanted.
-    var dockRect = __DOCK_RECT__;
-    var lastObstructed = null;
-
     function reportUrgent(w) {
         callDBus(svc, path, iface, 'reportWindowUrgent', String(w.internalId), !!w.demandsAttention);
     }
@@ -77,22 +71,21 @@ static const char kWinScript[] = R"js(
     workspace.windowRemoved.connect(function(w) {
         if (!w) return;
         callDBus(svc, path, iface, 'reportWindowRemoved', String(w.internalId));
-        recomputeObstruction();
     });
 
     workspace.windowActivated.connect(function(w) {
         callDBus(svc, path, iface, 'reportWindowActivated', w ? String(w.internalId) : '');
-        recomputeObstruction();
     });
 
-    // ── Dock obstruction, for dodge mode ──────────────────────────────────
-    // Reports a single boolean: does any window the user can currently see
-    // overlap the rectangle the dock occupies? That is what lets the dock get
-    // out of the way only when something is actually in its way, rather than
-    // hiding on a timer or guessing from the application name.
+    // ── Full-window tracking, for dodge mode ──────────────────────────────
     //
-    // Only the transition is reported, not every geometry change, so dragging
-    // a window around costs at most one DBus call each way.
+    // Reported per window, through the same callDBus path as the add/remove/
+    // urgency reports above, rather than computed here as one aggregate
+    // boolean. The aggregate version depended on a screen rectangle injected
+    // into this script and on a single recompute function; if anything in it
+    // threw, obstruction reporting silently stopped for the whole session.
+    // Per-window reports fail one window at a time, and reuse the path that
+    // is known to work.
     function onCurrentDesktop(w) {
         if (w.onAllDesktops) return true;
         if (!w.desktops || !workspace.currentDesktop) return true;
@@ -101,111 +94,93 @@ static const char kWinScript[] = R"js(
         return false;
     }
 
-    // Is this window in "full window mode" — maximised or fullscreen? Such a
-    // window owns the whole screen including the dock's strip, and this is the
-    // case that actually matters day to day. KWin doesn't expose maximisation
-    // the same way across versions, so this tries the properties and then
-    // falls back to measuring against the window's own output.
-    function isFullWindow(w) {
-        if (w.fullScreen) return true;
-        if (w.maximizedHorizontally === true && w.maximizedVertically === true) return true;
-        var g = w.frameGeometry;
-        var o = (w.output && w.output.geometry) ? w.output.geometry : null;
-        if (!g || !o) return false;
-        return g.width >= o.width * 0.95 && g.height >= o.height * 0.95;
+    // Is this window in "full window mode"? KWin does not expose maximisation
+    // the same way across versions, so try fullscreen, then the maximised
+    // properties, then measure against the window's own output.
+    function isFullSize(w) {
+        try {
+            if (w.fullScreen) return true;
+            if (w.maximizedHorizontally === true && w.maximizedVertically === true) return true;
+            var g = w.frameGeometry;
+            var o = (w.output && w.output.geometry) ? w.output.geometry : null;
+            if (!g || !o) return false;
+            return g.width >= o.width * 0.95 && g.height >= o.height * 0.95;
+        } catch (e) {
+            return false;
+        }
     }
 
-    function isRealVisibleWindow(w) {
+    function outputNameOf(w) {
+        try {
+            if (w.output && w.output.name) return String(w.output.name);
+        } catch (e) {}
+        return '';
+    }
+
+    // A real application window the user can currently see.
+    function eligible(w) {
         if (!w) return false;
-        // Testing for normalWindow being TRUE, not merely "not false", is what
-        // keeps panels, docks, popups, notifications, OSDs and our own layer
-        // surface out of the count — those either report false or don't have
-        // the property at all.
         if (!w.normalWindow) return false;
         if (w.desktopWindow || w.skipTaskbar) return false;
-        // `hidden` covers windows KWin has taken off screen for reasons other
-        // than the user minimising them.
         if (w.minimized || w.hidden) return false;
         return onCurrentDesktop(w);
     }
 
-    function coversDock(w) {
-        if (!dockRect || !isRealVisibleWindow(w)) return false;
-        if (isFullWindow(w)) return true;
-
-        // Otherwise: does it genuinely intrude into the dock's strip? A few
-        // pixels of overlap is a window resting against the dock's edge, not
-        // one covering it, and treating that as obstruction made the dock
-        // hide when nothing was really in the way.
-        var g = w.frameGeometry;
-        if (!g) return false;
-        var overlapW = Math.min(g.x + g.width,  dockRect.x + dockRect.w) - Math.max(g.x, dockRect.x);
-        var overlapH = Math.min(g.y + g.height, dockRect.y + dockRect.h) - Math.max(g.y, dockRect.y);
-        return overlapW > 0 && overlapH >= 8;
-    }
-
-    function describe(w) {
-        var name = w.resourceClass || w.caption || 'window';
-        return String(name) + (isFullWindow(w) ? ' (full window)' : ' (overlaps dock)');
-    }
-
-    function recomputeObstruction() {
-        if (!dockRect) return;
-        var hit = false;
-        var why = 'nothing covers the dock';
-        // "Show desktop" doesn't minimise anything — KWin just stops painting
-        // the windows — so every window still reports its normal geometry and
-        // the dock stayed hidden over an empty desktop. Nothing is covering
-        // the dock in this mode, by definition.
-        if (workspace.showingDesktop) {
-            why = 'showing desktop';
-        } else {
-            var list = workspace.windowList ? workspace.windowList() : [];
-            for (var k = 0; k < list.length; k++) {
-                if (coversDock(list[k])) { hit = true; why = describe(list[k]); break; }
-            }
-        }
-        if (hit !== lastObstructed) {
-            lastObstructed = hit;
-            callDBus(svc, path, iface, 'reportDockObstructed', hit, why);
-        }
-    }
-
-    function watchGeometry(w) {
-        if (!w || !dockRect) return;
-        if (w.frameGeometryChanged) w.frameGeometryChanged.connect(recomputeObstruction);
-        if (w.minimizedChanged)     w.minimizedChanged.connect(recomputeObstruction);
-        if (w.desktopsChanged)      w.desktopsChanged.connect(recomputeObstruction);
-        if (w.fullScreenChanged)    w.fullScreenChanged.connect(recomputeObstruction);
-    }
-
-    for (var j = 0; j < wins.length; j++) { watchGeometry(wins[j]); }
-    workspace.windowAdded.connect(function(w) { watchGeometry(w); recomputeObstruction(); });
-    if (workspace.currentDesktopChanged)
-        workspace.currentDesktopChanged.connect(recomputeObstruction);
-    if (workspace.showingDesktopChanged)
-        workspace.showingDesktopChanged.connect(recomputeObstruction);
-
-    // Last-resort resync: KWin exposes no single signal covering every way a
-    // window can stop covering the dock (tiling scripts, activities, an
-    // effect moving something), and a dock stuck hidden over a clear desktop
-    // is much worse than a two-second delay in noticing.
-    // Guarded: QTimer isn't constructible in every KWin scripting version, and
-    // a throw here would abort the rest of the script — including the initial
-    // recomputeObstruction() below, leaving dodge permanently stuck.
-    if (dockRect) {
+    function reportFullSize(w) {
+        if (!w) return;
         try {
-            var resync = new QTimer();
-            resync.interval = 2000;
-            resync.repeat = true;
-            resync.timeout.connect(recomputeObstruction);
-            resync.start();
-        } catch (e) {
-            print('kdock: periodic obstruction resync unavailable: ' + e);
-        }
+            var full = eligible(w) && isFullSize(w);
+            callDBus(svc, path, iface, 'reportWindowFullSize',
+                     String(w.internalId), full, outputNameOf(w));
+        } catch (e) {}
     }
 
-    recomputeObstruction();
+    function watchWindow(w) {
+        if (!w) return;
+        reportFullSize(w);
+        var again = function() { reportFullSize(w); };
+        if (w.frameGeometryChanged) w.frameGeometryChanged.connect(again);
+        if (w.fullScreenChanged)    w.fullScreenChanged.connect(again);
+        if (w.minimizedChanged)     w.minimizedChanged.connect(again);
+        if (w.desktopsChanged)      w.desktopsChanged.connect(again);
+        if (w.maximizedChanged)     w.maximizedChanged.connect(again);
+        if (w.outputChanged)        w.outputChanged.connect(again);
+    }
+
+    function rescanAll() {
+        var l = workspace.windowList ? workspace.windowList() : [];
+        for (var n = 0; n < l.length; n++) reportFullSize(l[n]);
+    }
+
+    // "Show desktop" doesn't minimise anything — KWin just stops painting the
+    // windows — so every window still reports itself as maximised. It has to
+    // be reported separately.
+    function reportShowingDesktop() {
+        callDBus(svc, path, iface, 'reportShowingDesktop', !!workspace.showingDesktop);
+    }
+
+    for (var j = 0; j < wins.length; j++) { watchWindow(wins[j]); }
+    workspace.windowAdded.connect(watchWindow);
+    if (workspace.currentDesktopChanged)
+        workspace.currentDesktopChanged.connect(rescanAll);
+    if (workspace.showingDesktopChanged)
+        workspace.showingDesktopChanged.connect(reportShowingDesktop);
+    reportShowingDesktop();
+
+    // Last-resort resync: KWin has no single signal covering every way a
+    // window can stop being full size (tiling scripts, activities, effects),
+    // and a dock stuck hidden over a clear desktop is much worse than a
+    // two-second delay. Guarded because QTimer isn't constructible in every
+    // KWin scripting version, and a throw here would abort the whole script.
+    try {
+        var resync = new QTimer();
+        resync.interval = 2000;
+        resync.repeat = true;
+        resync.timeout.connect(function() { rescanAll(); reportShowingDesktop(); });
+        resync.start();
+    } catch (e) {
+        print('kdock: periodic full-size resync unavailable: ' + e);
+    }
 })();
 )js";
 
@@ -233,25 +208,58 @@ TaskTracker::TaskTracker(QObject *parent)
 
 TaskTracker::~TaskTracker() = default;
 
-void TaskTracker::setDockRect(const QRect &rect)
+void TaskTracker::setDockScreenName(const QString &name)
 {
-    if (m_dockRect == rect) return;
-    m_dockRect = rect;
-
-    // The old script is watching the old rectangle; replace it wholesale.
-    if (m_dockRect.isEmpty() && m_dockObstructed) {
-        m_dockObstructed = false;
-        emit dockObstructionChanged();
-    }
-    setupKWinScript();
+    if (m_dockScreenName == name) return;
+    m_dockScreenName = name;
+    recomputeObstruction();
 }
 
-void TaskTracker::onDockObstructedChanged(bool obstructed, const QString &reason)
+void TaskTracker::onWindowFullSizeChanged(const QString &uuid, bool fullSize,
+                                          const QString &outputName)
 {
+    if (fullSize)
+        m_fullSizeWindows.insert(uuid, outputName);
+    else if (m_fullSizeWindows.remove(uuid) == 0)
+        return;   // wasn't tracked and still isn't: nothing changed
+
+    recomputeObstruction();
+}
+
+void TaskTracker::onShowingDesktopChanged(bool showing)
+{
+    if (m_showingDesktop == showing) return;
+    m_showingDesktop = showing;
+    recomputeObstruction();
+}
+
+void TaskTracker::recomputeObstruction()
+{
+    bool obstructed = false;
+    QString reason = QStringLiteral("no full-size window");
+
+    if (m_showingDesktop) {
+        reason = QStringLiteral("showing desktop");
+    } else {
+        for (auto it = m_fullSizeWindows.constBegin();
+             it != m_fullSizeWindows.constEnd(); ++it) {
+            // An empty output name means KWin didn't tell us which screen the
+            // window is on; treat that as "ours" rather than ignoring it.
+            if (!it.value().isEmpty() && !m_dockScreenName.isEmpty()
+                && it.value() != m_dockScreenName)
+                continue;
+            obstructed = true;
+            reason = QStringLiteral("full-size window on %1")
+                         .arg(it.value().isEmpty() ? QStringLiteral("this screen") : it.value());
+            break;
+        }
+    }
+
     if (m_dockObstructed == obstructed) return;
     m_dockObstructed = obstructed;
-    qDebug("kdock [tasktracker]: dock %s — %s",
-           obstructed ? "obstructed" : "clear", qPrintable(reason));
+    qDebug("kdock [tasktracker]: dock %s — %s (%lld full-size window(s) tracked)",
+           obstructed ? "obstructed" : "clear", qPrintable(reason),
+           static_cast<long long>(m_fullSizeWindows.size()));
     emit dockObstructionChanged();
 }
 
@@ -264,7 +272,8 @@ void TaskTracker::setupKWinScript()
         connect(m_bridge, &KWinBridge::windowRemoved,      this, &TaskTracker::onWindowRemoved);
         connect(m_bridge, &KWinBridge::windowActivated,    this, &TaskTracker::onWindowActivated);
         connect(m_bridge, &KWinBridge::windowUrgentChanged, this, &TaskTracker::onWindowUrgentChanged);
-        connect(m_bridge, &KWinBridge::dockObstructedChanged, this, &TaskTracker::onDockObstructedChanged);
+        connect(m_bridge, &KWinBridge::windowFullSizeChanged, this, &TaskTracker::onWindowFullSizeChanged);
+        connect(m_bridge, &KWinBridge::showingDesktopChanged,  this, &TaskTracker::onShowingDesktopChanged);
     }
 
     // Register once. setupKWinScript() also runs whenever the dodge rectangle
@@ -287,18 +296,7 @@ void TaskTracker::setupKWinScript()
         qWarning("kdock [tasktracker]: cannot write KWin script to '%s'", qPrintable(scriptPath));
         return;
     }
-    // Bake the watched rectangle into the script: KWin scripts have no inbound
-    // RPC, so a changed dock geometry means rewriting and reloading the script.
-    const QString rectLiteral = m_dockRect.isEmpty()
-        ? QStringLiteral("null")
-        : QStringLiteral("{x:%1,y:%2,w:%3,h:%4}")
-              .arg(m_dockRect.x()).arg(m_dockRect.y())
-              .arg(m_dockRect.width()).arg(m_dockRect.height());
-
-    QString script = QString::fromLatin1(kWinScript);
-    script.replace(QStringLiteral("__DOCK_RECT__"), rectLiteral);
-
-    f.write(script.toUtf8());
+    f.write(kWinScript);
     f.close();
 
     if (!m_scripting->isValid())
@@ -378,6 +376,11 @@ void TaskTracker::onWindowAdded(const QString &uuid, const QString &desktopFile)
 
 void TaskTracker::onWindowRemoved(const QString &uuid)
 {
+    // Drop any full-size record too, or a closed maximised window would keep
+    // the dock hidden forever.
+    if (m_fullSizeWindows.remove(uuid) > 0)
+        recomputeObstruction();
+
     qDebug("kdock [tasktracker]: windowRemoved uuid='%s'", qPrintable(uuid));
     removeWindow(uuid);
 }

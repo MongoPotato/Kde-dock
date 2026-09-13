@@ -31,6 +31,10 @@ static void popupConfigure(void *data, zwlr_layer_surface_v1 *surface,
 
 static void popupClosed(void *data, zwlr_layer_surface_v1 *)
 {
+    // The compositor asking us to go away bypasses every QML-side rule about
+    // when a menu may close, so say so — otherwise a menu vanishing for this
+    // reason is indistinguishable from one of our own timers firing.
+    qDebug("kdock [popup]: compositor closed the layer surface");
     auto *self = static_cast<LayerShellPopup *>(data);
     QMetaObject::invokeMethod(self, [self]() { self->setVisible(false); },
                               Qt::QueuedConnection);
@@ -50,6 +54,10 @@ LayerShellPopup::LayerShellPopup(QWindow *parent)
     : QQuickWindow(parent)
 {
     m_useLayerShell = LayerShellGlobal::available();
+    if (!m_useLayerShell) {
+        qWarning("kdock [popup]: wlr-layer-shell unavailable — menus fall back to "
+                 "ordinary windows and will be stacked under the dock");
+    }
 
     if (m_useLayerShell) {
         // Same reason as the dock: BypassWindowManagerHint stops Qt's Wayland
@@ -153,7 +161,11 @@ void LayerShellPopup::createLayerSurface()
         shell, surface, output,
         ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY,
         "kdock-popup");
-    if (!m_layerSurface) return;
+    if (!m_layerSurface) {
+        qWarning("kdock [popup]: could not create an OVERLAY layer surface — "
+                 "the menu will be an ordinary window and may sit under the dock");
+        return;
+    }
 
     zwlr_layer_surface_v1_add_listener(m_layerSurface, &s_popupListener, this);
 
@@ -208,4 +220,7 @@ void LayerShellPopup::applyLayerGeometry()
 
     wl_surface_commit(surface);
     LayerShellGlobal::roundtrip();
+
+    qDebug("kdock [popup]: OVERLAY surface at %d,%d size %dx%d (origin %d,%d)",
+           m_popupX, m_popupY, width(), height(), origin.x(), origin.y());
 }
