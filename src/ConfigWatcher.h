@@ -49,8 +49,20 @@ class ConfigWatcher : public QObject {
     Q_PROPERTY(int scrollMinSize READ scrollMinSize NOTIFY configChanged)
     Q_PROPERTY(int scrollMaxSize READ scrollMaxSize NOTIFY configChanged)
 
+    // ── Derived dock geometry ─────────────────────────────────────────────
+    // One place computes how thick the dock is, so the reserved screen space,
+    // the input region, the window size and the slide-out distance can never
+    // disagree with each other (they used to, see dockVisualThickness()).
+    Q_PROPERTY(int dockVisualThickness READ dockVisualThickness NOTIFY configChanged)
+    Q_PROPERTY(int dockReservedThickness READ dockReservedThickness NOTIFY configChanged)
+    Q_PROPERTY(int dockWindowThickness READ dockWindowThickness NOTIFY configChanged)
+
     // ── Behaviour ─────────────────────────────────────────────────────────
     Q_PROPERTY(bool autohide READ autohide NOTIFY configChanged)
+    // Whether the compositor should keep the dock's strip clear of other
+    // windows. Ignored while autohide is on — a dock that gets out of the way
+    // by itself has no business permanently carving out the screen edge.
+    Q_PROPERTY(bool reserveSpace READ reserveSpace NOTIFY configChanged)
     // Grace period between the cursor leaving the icon bar and the dock
     // sliding away, in milliseconds.
     Q_PROPERTY(int autohideDelayMs READ autohideDelayMs NOTIFY configChanged)
@@ -97,7 +109,12 @@ public:
     int scrollMinSize() const;
     int scrollMaxSize() const;
 
+    int dockVisualThickness() const;
+    int dockReservedThickness() const;
+    int dockWindowThickness() const;
+
     bool autohide() const;
+    bool reserveSpace() const;
     int autohideDelayMs() const;
     bool magnify() const;
     double magnifyScale() const;
@@ -129,6 +146,7 @@ public:
     Q_INVOKABLE void setBackgroundOpacity(double v);
     Q_INVOKABLE void setAutohide(bool on);
     Q_INVOKABLE void setAutohideDelayMs(int ms);
+    Q_INVOKABLE void setReserveSpace(bool on);
     Q_INVOKABLE void setIconBgShape(const QString &shape);
     Q_INVOKABLE void setIconBgOpacity(double v);
     Q_INVOKABLE void setBlurEnabled(bool on);

@@ -94,23 +94,22 @@ int main(int argc, char *argv[])
     if (QScreen *initialScreen = resolvePreferredScreen())
         window.setScreen(initialScreen);
 
-    // baseThickness = visual strip height (reserved screen space / exclusive zone).
-    // winThickness  = full window height: strip + hoverLiftPx so lifted icons
-    //                 don't clip at the window edge.
-    auto computeThicknesses = [&](int &base, int &win) {
-        base = config.iconSize() + config.padding() * 2;
-        // Extra space for hover lift (8px default) + click bounce peak (-22px) + margin
-        win  = base + config.hoverLiftPx() + 32;
+    // All three numbers come from ConfigWatcher so nothing here can drift out
+    // of step with what QML actually paints:
+    //   dockReservedThickness — screen space the compositor keeps clear, and
+    //                           the part of the window that takes input
+    //   dockWindowThickness   — full window height, click-bounce headroom
+    //                           included; that headroom paints nothing and is
+    //                           neither reserved nor interactive
+    // Auto-hide reserves nothing: a dock that gets out of the way by itself
+    // has no business permanently carving out the screen edge.
+    auto applyDockGeometry = [&]() {
+        const bool reserving = config.reserveSpace() && !config.autohide();
+        window.setExclusiveZone(reserving ? config.dockReservedThickness() : 0);
+        window.setInteractiveThickness(config.dockReservedThickness());
+        window.setThickness(config.dockWindowThickness());
     };
-
-    {
-        int base, win;
-        computeThicknesses(base, win);
-        // Auto-hide reserves no screen space — the dock floats over whatever
-        // is underneath instead of permanently carving out the edge.
-        window.setExclusiveZone(config.autohide() ? 0 : base);
-        window.setThickness(win);
-    }
+    applyDockGeometry();
 
     // Set an initial window size so the QML root item has geometry before
     // the layer-shell configure callback fires.
@@ -127,10 +126,7 @@ int main(int argc, char *argv[])
     QObject::connect(&config, &ConfigWatcher::configChanged, &window,
                      [&]() {
                          window.setBlurEnabled(config.blurEnabled());
-                         int base, win;
-                         computeThicknesses(base, win);
-                         window.setExclusiveZone(config.autohide() ? 0 : base);
-                         window.setThickness(win);
+                         applyDockGeometry();
                          window.applyGeometryUpdate();
                      });
 
@@ -193,6 +189,15 @@ int main(int argc, char *argv[])
                qPrintable(config.pinnedApps().join(QStringLiteral(", "))));
         qDebug("kdock [debug]: position    : %s", qPrintable(config.position()));
         qDebug("kdock [debug]: icon size   : %d px", config.iconSize());
+        qDebug("kdock [debug]: dock painted: %d px", config.dockVisualThickness());
+        qDebug("kdock [debug]: reserved    : %d px%s",
+               window.exclusiveZone(),
+               window.exclusiveZone() == 0
+                   ? (config.autohide() ? "  (auto-hide: no space reserved)"
+                                        : "  (reserveSpace off)")
+                   : "");
+        qDebug("kdock [debug]: interactive : %d px of a %d px window",
+               window.interactiveThickness(), window.thickness());
         qDebug("kdock [debug]: model rows  : %d", dockModel.rowCount());
         qDebug("kdock [debug]: QML path    : %s", qPrintable(qmlPath));
     }

@@ -225,6 +225,27 @@ Window {
                     }
                 }
 
+                // ── Reserve screen space ──────────────────────────────────
+                RowLayout { spacing: 12; Layout.fillWidth: true
+                    enabled: !config.autohide
+                    opacity: enabled ? 1.0 : 0.45
+                    ColumnLayout { spacing: 2
+                        Text { text: "Reserve screen space"; color: "white"; font.pixelSize: 13 }
+                        Text {
+                            text: config.autohide
+                                  ? "Not reserved while auto-hide is on"
+                                  : "Keeps windows out of the dock's "
+                                    + config.dockReservedThickness + " px strip"
+                            color: "#888"; font.pixelSize: 11
+                        }
+                    }
+                    Item { Layout.fillWidth: true }
+                    Switch {
+                        checked: config.reserveSpace
+                        onToggled: settings.applyReserveSpace(checked)
+                    }
+                }
+
                 // ── Auto-hide ─────────────────────────────────────────────
                 RowLayout { spacing: 12; Layout.fillWidth: true
                     ColumnLayout { spacing: 2

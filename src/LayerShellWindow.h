@@ -40,6 +40,14 @@ public:
     void setExclusiveZone(int px);
     int exclusiveZone() const { return m_exclusiveZone; }
 
+    // How much of the window, measured from the anchored edge, actually takes
+    // pointer input while revealed. The window is taller than this so the
+    // click-bounce animation isn't clipped, but that headroom paints nothing —
+    // leaving it interactive turned it into an invisible band across the
+    // screen that swallowed clicks meant for the window behind the dock.
+    void setInteractiveThickness(int px);
+    int interactiveThickness() const { return m_interactiveThickness; }
+
     // Apply thickness + exclusive zone to the running layer surface (no-op if not yet shown).
     void applyGeometryUpdate();
 
@@ -79,15 +87,16 @@ private:
     void setupWaylandLayerSurface();
     void applyX11Geometry();
 
-    // Narrows (hidden) or clears (revealed) the window's input region.
-    // Uses QWindow::setMask(), which QtWayland maps onto
-    // wl_surface::set_input_region and XCB maps onto the XShape input mask,
+    // Narrows the window's input region to the reveal strip (hidden) or to
+    // the dock band (revealed). Uses QWindow::setMask(), which QtWayland maps
+    // onto wl_surface::set_input_region and XCB onto the XShape input mask,
     // so the same call works on both backends.
     void applyInputMask();
 
     QString m_anchor { QStringLiteral("bottom") };
     int m_thickness = 72;
     int m_exclusiveZone = 72;
+    int m_interactiveThickness = 0;   // 0 = whole window
     bool m_isWayland = false;
     bool m_shellApplied = false;
     bool m_blurEnabled = false;

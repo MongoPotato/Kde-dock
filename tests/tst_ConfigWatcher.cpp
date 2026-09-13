@@ -119,6 +119,103 @@ private slots:
         QCOMPARE(cw.autohideDelayMs(), 2500);
     }
 
+    // ── Derived dock geometry ─────────────────────────────────────────────
+    //
+    // The regression these guard: the reserved strip used to be computed as
+    // iconSize + padding * 2, which is SHORTER than the icon row it contains
+    // (the row adds its own icon-background padding and sits `padding` off the
+    // edge). Windows were then laid out over the top of the icons.
+
+    // The painted dock must be at least as thick as the row of items in it
+    void test_visualThicknessCoversIconRow()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"iconSize":52,"padding":8,"iconBackground":{"padding":6}})");
+        f.close();
+
+        ConfigWatcher cw;
+        // Row extent: padding + iconSize + iconBgPadding * 2 + 4 = 8 + 68 = 76,
+        // against a background strip of iconSize + padding * 2 = 68.
+        QCOMPARE(cw.dockVisualThickness(), 76);
+        QVERIFY(cw.dockVisualThickness() >= cw.iconSize() + cw.padding() * 2);
+    }
+
+    // A large icon-background padding must widen the dock, not overflow it
+    void test_visualThicknessFollowsIconBgPadding()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"iconSize":40,"padding":4,"iconBackground":{"padding":20}})");
+        f.close();
+
+        ConfigWatcher cw;
+        // 4 + 40 + 40 + 4 = 88, comfortably past the 48 px background strip
+        QCOMPARE(cw.dockVisualThickness(), 88);
+    }
+
+    // Tiny icon backgrounds must not shrink the dock below its own background
+    void test_visualThicknessNeverBelowBackgroundStrip()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"iconSize":48,"padding":20,"iconBackground":{"padding":0}})");
+        f.close();
+
+        ConfigWatcher cw;
+        // Strip 48 + 40 = 88 wins over the row's 20 + 52 = 72
+        QCOMPARE(cw.dockVisualThickness(), 88);
+    }
+
+    // Reserved space must include the hover lift, so a raised icon stays
+    // inside the dock's own space instead of over the window behind it
+    void test_reservedThicknessIncludesHoverLift()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"iconSize":52,"padding":8,"iconBackground":{"padding":6},"hover":{"liftPx":10}})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.dockReservedThickness(), cw.dockVisualThickness() + 10);
+        QCOMPARE(cw.dockReservedThickness(), 86);
+    }
+
+    // The window is taller than the reserved strip (click-bounce headroom),
+    // and that ordering is what keeps the bounce from being clipped
+    void test_windowThicknessExceedsReserved()
+    {
+        ConfigWatcher cw;
+        QVERIFY(cw.dockWindowThickness() > cw.dockReservedThickness());
+        QVERIFY(cw.dockReservedThickness() >= cw.dockVisualThickness());
+    }
+
+    // ── reserveSpace ──────────────────────────────────────────────────────
+
+    // Defaults to on: a dock that reserves nothing sits over other windows
+    void test_reserveSpaceDefaultsOn()
+    {
+        ConfigWatcher cw;
+        QCOMPARE(cw.reserveSpace(), true);
+    }
+
+    // ...and survives a reload once turned off
+    void test_setReserveSpace_persists()
+    {
+        ConfigWatcher cw;
+        cw.setReserveSpace(false);
+        cw.reload();
+        QCOMPARE(cw.reserveSpace(), false);
+    }
+
     // Verify that a corrupt JSON file falls back to defaults without crashing
     void test_fallsBackOnCorruptJson()
     {

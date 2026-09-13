@@ -22,17 +22,22 @@ Item {
 
     onDockVisibleChanged: console.log("[kdock autohide] DockBar.dockVisible →", dockVisible)
 
-    implicitWidth:  isHorizontal ? itemRow.implicitWidth    + config.padding * 2
-                                 : config.iconSize          + config.padding * 2
-    implicitHeight: isHorizontal ? config.iconSize          + config.padding * 2
+    implicitWidth:  isHorizontal ? itemRow.implicitWidth     + config.padding * 2
+                                 : config.dockVisualThickness
+    implicitHeight: isHorizontal ? config.dockVisualThickness
                                  : itemColumn.implicitHeight + config.padding * 2
 
     // ── Background ───────────────────────────────────────────────────────
     // Anchored to the dock EDGE. The window may be taller than the strip
     // (to allow hover-lift overflow) so the background only fills the
     // visual strip, not the entire window.
+    //
+    // stripSize comes from config.dockVisualThickness, the same number the
+    // compositor is asked to reserve. Computing it here as
+    // iconSize + padding * 2 made the background SHORTER than the icon row it
+    // contains — icon pills and glow rings poked out of the top of the bar.
     Rectangle {
-        readonly property int stripSize: config.iconSize + config.padding * 2
+        readonly property int stripSize: config.dockVisualThickness
 
         anchors.left:   (isHorizontal || position === "left")  ? parent.left  : undefined
         anchors.right:  (isHorizontal || position === "right") ? parent.right : undefined
@@ -62,23 +67,23 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 150 } }
     }
 
-    // ── Mouse area for right-click dock menu ──────────────────────────────
-    MouseArea {
-        id: barMouse
-        anchors.fill: parent
-        hoverEnabled: false
+    // ── Right-click → dock menu ───────────────────────────────────────────
+    // A TapHandler rather than a MouseArea. The MouseArea this replaces had to
+    // win an exclusive grab over the whole bar to see a click, so it competed
+    // with everything else on the dock and right-clicks on the free area were
+    // easy to lose. A handler is offered the event on its own and fires on
+    // release-within-bounds, so the menu comes up wherever the bar itself is
+    // under the cursor. Icons still answer their own right-click first (their
+    // MouseArea is in front), which is the more specific menu of the two.
+    TapHandler {
+        id: barRightClick
         acceptedButtons: Qt.RightButton
-        propagateComposedEvents: true
+        gesturePolicy: TapHandler.ReleaseWithinBounds
 
-        onClicked: (event) => {
-            if (event.button === Qt.RightButton) {
-                const sp = barMouse.mapToGlobal(event.x, event.y)
-                barContextMenu.mode = "dock"
-                barContextMenu.openAt(sp.x, sp.y)
-                event.accepted = true
-            } else {
-                event.accepted = false
-            }
+        onSingleTapped: (eventPoint, button) => {
+            const sp = root.mapToGlobal(eventPoint.position.x, eventPoint.position.y)
+            barContextMenu.mode = "dock"
+            barContextMenu.openAt(sp.x, sp.y)
         }
     }
 

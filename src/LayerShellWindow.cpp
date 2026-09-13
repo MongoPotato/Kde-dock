@@ -267,6 +267,13 @@ void LayerShellWindow::setExclusiveZone(int px)
     m_exclusiveZone = px;
 }
 
+void LayerShellWindow::setInteractiveThickness(int px)
+{
+    if (m_interactiveThickness == px) return;
+    m_interactiveThickness = px;
+    applyInputMask();
+}
+
 void LayerShellWindow::applyGeometryUpdate()
 {
     if (!m_isWayland || !m_layerSurface) return;
@@ -313,27 +320,32 @@ void LayerShellWindow::applyInputMask()
 {
     if (!isVisible()) return;
 
-    // An empty QRegion means "no mask": the whole surface accepts input.
+    const int w = width();
+    const int h = height();
+    if (w <= 0 || h <= 0) return;
+
+    const bool vertical = (m_anchor == QStringLiteral("left")
+                        || m_anchor == QStringLiteral("right"));
+    const int available = vertical ? w : h;
+
+    // Hidden: only the reveal strip listens, so everything else falls through
+    // to the window underneath. Revealed: the band the dock actually occupies,
+    // never the whole window — the click-bounce headroom above it paints
+    // nothing and must not intercept pointer events.
+    const int band = m_revealed
+                   ? (m_interactiveThickness > 0 ? m_interactiveThickness : available)
+                   : kRevealStripPx;
+    const int strip = qBound(1, band, available);
+
     QRegion mask;
-
-    if (!m_revealed) {
-        const int w = width();
-        const int h = height();
-        if (w <= 0 || h <= 0) return;
-
-        const bool vertical = (m_anchor == QStringLiteral("left")
-                            || m_anchor == QStringLiteral("right"));
-        const int strip = qMin(kRevealStripPx, vertical ? w : h);
-
-        if (m_anchor == QStringLiteral("bottom"))
-            mask = QRegion(0, h - strip, w, strip);
-        else if (m_anchor == QStringLiteral("top"))
-            mask = QRegion(0, 0, w, strip);
-        else if (m_anchor == QStringLiteral("left"))
-            mask = QRegion(0, 0, strip, h);
-        else
-            mask = QRegion(w - strip, 0, strip, h);
-    }
+    if (m_anchor == QStringLiteral("bottom"))
+        mask = QRegion(0, h - strip, w, strip);
+    else if (m_anchor == QStringLiteral("top"))
+        mask = QRegion(0, 0, w, strip);
+    else if (m_anchor == QStringLiteral("left"))
+        mask = QRegion(0, 0, strip, h);
+    else
+        mask = QRegion(w - strip, 0, strip, h);
 
     if (m_maskApplied && m_appliedMask == mask) return;
     m_appliedMask = mask;

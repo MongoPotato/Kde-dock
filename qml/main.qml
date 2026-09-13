@@ -48,7 +48,7 @@ Item {
     readonly property bool dockVisible: !config.autohide || dockHeld
 
     // ── Icon-bar hover zone ───────────────────────────────────────────────
-    readonly property int stripThickness: config.iconSize + config.padding * 2
+    readonly property int stripThickness: config.dockVisualThickness
     // Slack above the strip covers the hover lift and the click-bounce
     // overshoot: an icon that pops up under the cursor must not read as the
     // cursor having left the bar.
@@ -110,8 +110,8 @@ Item {
             animDoneTimer.restart()
             revealDwell.restart()
             maskHideTimer.stop()
-            // Widen the input region back to the whole surface immediately so
-            // the icons are clickable as soon as they're on screen.
+            // Widen the input region back to the dock band immediately so the
+            // icons are clickable as soon as they're on screen.
             if (typeof dockWindow !== "undefined") dockWindow.setRevealed(true)
         } else {
             hideTimer.stop()

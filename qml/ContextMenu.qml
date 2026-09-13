@@ -21,17 +21,62 @@ Window {
     width:  240
     height: menuCol.implicitHeight + 10
 
-    // Dismiss when focus moves elsewhere (click outside)
-    onActiveChanged: if (!active) visible = false
+    // Has this menu ever actually held keyboard focus? The dock is a
+    // layer-shell surface with keyboard interactivity set to NONE, so
+    // requestActivate() on a menu opened from it is not guaranteed to be
+    // granted. Dismissing on any inactive state meant that when activation
+    // never arrived the menu was torn down the moment it appeared — the
+    // "really tricky to get the option menu up" flash.
+    property bool _everActive: false
 
-    // Open above the click point, clamped to the primary screen.
+    onActiveChanged: {
+        if (active)
+            _everActive = true
+        else if (_everActive && visible)
+            visible = false   // genuine click-outside: we had focus and lost it
+    }
+
+    // NOTE: no onVisibleChanged handler here. DockBar and DockItem attach one
+    // at the instantiation site to track open menus, and a use-site handler
+    // silently replaces one written in the component — so _everActive is reset
+    // in openAt() instead, where it can't be overridden.
+
+    // Open above the click point, clamped to the screen the click was on.
     function openAt(screenX, screenY) {
+        _everActive = false
+        // Position BEFORE showing. Showing first and positioning in a
+        // callLater made the menu appear at its previous coordinates for a
+        // frame and jump, which on its own is enough to lose a click.
+        positionSelf(screenX, screenY)
         visible = true
-        Qt.callLater(positionSelf, screenX, screenY)
+        Qt.callLater(_settle, screenX, screenY)
+    }
+
+    // Deferred so the window is actually mapped before we ask to be raised
+    // and activated, and so the re-clamp sees the height this mode's entries
+    // settled on rather than the previous mode's.
+    function _settle(sx, sy) {
+        positionSelf(sx, sy)
+        raise()
+        requestActivate()
+    }
+
+    // The screen the click happened on — not always screens[0] on a
+    // multi-monitor desktop, where clamping to the wrong screen could park
+    // the menu off the edge of the one the user is looking at.
+    function _screenAt(sx, sy) {
+        const screens = Qt.application.screens
+        for (let i = 0; i < screens.length; ++i) {
+            const s = screens[i]
+            if (sx >= s.virtualX && sx < s.virtualX + s.width
+             && sy >= s.virtualY && sy < s.virtualY + s.height)
+                return s
+        }
+        return screens[0]
     }
 
     function positionSelf(sx, sy) {
-        const scr = Qt.application.screens[0]
+        const scr = _screenAt(sx, sy)
         let px = sx - 8
         let py = sy - root.height - 8
         if (px + root.width > scr.virtualX + scr.width)  px = scr.virtualX + scr.width - root.width - 8
@@ -39,8 +84,19 @@ Window {
         if (py < scr.virtualY)                            py = sy + 8
         root.x = px
         root.y = py
-        raise()
-        requestActivate()
+    }
+
+    // Safety net for the case above: if the menu never gets focus, nothing
+    // would ever close it on a click elsewhere. Close it once the cursor has
+    // been away from it for a while instead of leaving it stranded on screen.
+    HoverHandler { id: menuHover }
+
+    Timer {
+        id: strandedGuard
+        interval: 4000
+        running:  root.visible && !menuHover.hovered
+        repeat:   false
+        onTriggered: if (!root._everActive) root.visible = false
     }
 
     // ── Visual shell ─────────────────────────────────────────────────────────

@@ -59,6 +59,11 @@ void SettingsController::applyAutohideDelay(int ms)
     m_config->setAutohideDelayMs(qBound(250, ms, 10000));
 }
 
+void SettingsController::applyReserveSpace(bool on)
+{
+    m_config->setReserveSpace(on);
+}
+
 void SettingsController::applyIconBgShape(const QString &shape)
 {
     static const QStringList valid{

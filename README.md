@@ -166,6 +166,9 @@ its hide delay) — or edit `dock.json` directly:
   "autohide": false,
   "autohideDelayMs": 2500,     // how long after the cursor leaves the icon
                                // bar before the dock slides away (250–10000)
+  "reserveSpace": true,        // keep other windows out of the dock's strip.
+                               // Ignored while autohide is on — an auto-hiding
+                               // dock never reserves space.
   "magnify": true,
   "magnifyScale": 1.5,
   "background": { "color": "#1a1a2e", "opacity": 0.85, "radius": 14 }

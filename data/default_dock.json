@@ -43,6 +43,7 @@
 
   "autohide":        false,
   "autohideDelayMs": 2500,
+  "reserveSpace":    true,
   "magnify":         true,
   "magnifyScale":    1.5,
   "magnifyRadius":   120,

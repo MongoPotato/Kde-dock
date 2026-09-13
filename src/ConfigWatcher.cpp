@@ -215,11 +215,61 @@ int ConfigWatcher::scrollMaxSize() const
         .value(QStringLiteral("maxSize")).toInt(128);
 }
 
+// ── Derived dock geometry ──────────────────────────────────────────────────
+//
+// The dock draws two things stacked on the anchored edge: a background strip
+// (iconSize + padding on both sides) and, inside it, a row of items that each
+// carry their own icon-background padding. The row is laid out with `padding`
+// of margin against the edge, so its outer extent is
+//
+//     padding + iconSize + iconBgPadding * 2 + 4
+//
+// which for the default 52/8/6 sizes is 76 px against a 68 px strip — the row
+// is TALLER than the strip it sits in. Reserving only the strip therefore left
+// the top of every icon (and all of the hover lift) hanging over whatever
+// window was behind the dock.
+
+// Item height in DockItem.qml: the icon, its background padding, and 2 px of
+// breathing room on each side.
+static int itemExtent(int iconSize, int iconBgPadding)
+{
+    return iconSize + iconBgPadding * 2 + 4;
+}
+
+// Everything the dock paints at rest.
+int ConfigWatcher::dockVisualThickness() const
+{
+    const int strip = iconSize() + padding() * 2;
+    const int row   = padding() + itemExtent(iconSize(), iconBgPadding());
+    return qMax(strip, row);
+}
+
+// What the compositor is asked to keep clear: the painted dock plus the hover
+// lift, so an icon raised under the cursor still sits inside our own space
+// rather than on top of the window behind.
+int ConfigWatcher::dockReservedThickness() const
+{
+    return dockVisualThickness() + hoverLiftPx();
+}
+
+// The window itself is taller again, purely so the click-bounce animation
+// (which overshoots to -22 px) isn't clipped. Nothing is painted up there at
+// rest and it is deliberately NOT reserved or made interactive.
+int ConfigWatcher::dockWindowThickness() const
+{
+    return dockReservedThickness() + 26;
+}
+
 // ── Behaviour ──────────────────────────────────────────────────────────────
 
 bool ConfigWatcher::autohide() const
 {
     return m_config.value(QStringLiteral("autohide")).toBool(false);
+}
+
+bool ConfigWatcher::reserveSpace() const
+{
+    return m_config.value(QStringLiteral("reserveSpace")).toBool(true);
 }
 
 // How long the dock waits, after the cursor has left the icon bar, before it
@@ -328,6 +378,13 @@ void ConfigWatcher::setAutohideDelayMs(int ms)
     save();
 }
 
+void ConfigWatcher::setReserveSpace(bool on)
+{
+    m_config[QStringLiteral("reserveSpace")] = on;
+    emit configChanged();
+    save();
+}
+
 void ConfigWatcher::setIconBgShape(const QString &shape)
 {
     QJsonObject ib = m_config.value(QStringLiteral("iconBackground")).toObject();
@@ -412,6 +469,7 @@ void ConfigWatcher::resetToDefaults()
         }},
         {QStringLiteral("autohide"),        false},
         {QStringLiteral("autohideDelayMs"), 2500},
+        {QStringLiteral("reserveSpace"),    true},
         {QStringLiteral("magnify"),         true},
         {QStringLiteral("magnifyScale"),    1.5},
         {QStringLiteral("magnifyRadius"),   120},
