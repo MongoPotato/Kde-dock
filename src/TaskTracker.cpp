@@ -206,7 +206,15 @@ TaskTracker::TaskTracker(QObject *parent)
     m_pollTimer.start();
 }
 
-TaskTracker::~TaskTracker() = default;
+TaskTracker::~TaskTracker()
+{
+    // The tracking script runs inside KWin and outlives this process unless it
+    // is explicitly unloaded — it would sit there forever with a resync timer
+    // ticking, calling DBus into a service that no longer exists. Restarts
+    // (kdock --replace) make that pile up.
+    if (m_scripting && m_scripting->isValid())
+        m_scripting->call(QStringLiteral("unloadScript"), QStringLiteral("kdock-tracker"));
+}
 
 void TaskTracker::setDockScreenName(const QString &name)
 {
@@ -276,18 +284,16 @@ void TaskTracker::setupKWinScript()
         connect(m_bridge, &KWinBridge::showingDesktopChanged,  this, &TaskTracker::onShowingDesktopChanged);
     }
 
-    // Register once. setupKWinScript() also runs whenever the dodge rectangle
-    // changes, and re-registering an already-registered name just fails noisily.
+    // The org.kde.kdock bus name is owned by SingleInstance, which took it
+    // before anything here ran — this only has to publish the object the KWin
+    // script calls into. Registering once: setupKWinScript() is also the retry
+    // path, and re-registering a live object just fails noisily.
     if (!m_bridgeRegistered) {
-        const bool svcOk = QDBusConnection::sessionBus()
-                               .registerService(QStringLiteral("org.kde.kdock"));
-        const bool objOk = QDBusConnection::sessionBus()
-                               .registerObject(QStringLiteral("/WindowTracker"), m_bridge,
-                                               QDBusConnection::ExportScriptableSlots);
-        qDebug("kdock [tasktracker]: DBus bridge — service=%s  object=%s",
-               svcOk ? "OK" : "FAILED (may already be registered)",
-               objOk ? "OK" : "FAILED");
-        m_bridgeRegistered = svcOk && objOk;
+        m_bridgeRegistered = QDBusConnection::sessionBus()
+            .registerObject(QStringLiteral("/WindowTracker"), m_bridge,
+                            QDBusConnection::ExportScriptableSlots);
+        qDebug("kdock [tasktracker]: DBus window-tracker object — %s",
+               m_bridgeRegistered ? "OK" : "FAILED");
     }
 
     const QString scriptPath = QStringLiteral("/tmp/kdock_tracker.js");

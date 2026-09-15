@@ -19,6 +19,7 @@
 #include "LayerShellPopup.h"
 #include "LayerShellWindow.h"
 #include "SettingsController.h"
+#include "SingleInstance.h"
 #include "TaskTracker.h"
 
 #include <QCommandLineOption>
@@ -48,9 +49,37 @@ int main(int argc, char *argv[])
     parser.addVersionOption();
     parser.addOption(QCommandLineOption(
         QStringLiteral("debug"),
-        QStringLiteral("Enable verbose QML and Qt logging; print startup diagnostics.")));
+        QStringLiteral("Enable verbose QML and Qt logging; print startup diagnostics. "
+                       "Implies --replace, so it takes over from the installed dock "
+                       "instead of running alongside it.")));
+    parser.addOption(QCommandLineOption(
+        QStringLiteral("replace"),
+        QStringLiteral("Stop any running kdock (including the systemd service) and "
+                       "take its place.")));
+    parser.addOption(QCommandLineOption(
+        QStringLiteral("qml-path"),
+        QStringLiteral("Load QML from this directory instead of the usual search "
+                       "order. Use it to run a development build against the "
+                       "installed QML, or the reverse."),
+        QStringLiteral("dir")));
     parser.process(app);
     const bool debugMode = parser.isSet(QStringLiteral("debug"));
+    // Debugging a dock while the installed one is still on screen is useless,
+    // so --debug always replaces.
+    const bool replaceMode = debugMode || parser.isSet(QStringLiteral("replace"));
+
+    // Must happen before anything touches KWin or the config: two instances
+    // would otherwise fight over the same KWin script name and DBus objects.
+    QString instanceError;
+    SingleInstance *instance = SingleInstance::acquire(replaceMode, &instanceError);
+    if (!instance) {
+        qWarning("kdock: %s", qPrintable(instanceError));
+        return 1;
+    }
+    if (instance->stoppedSystemdUnit()) {
+        qInfo("kdock: stopped the installed kdock.service to take over. "
+              "Restore it later with:  systemctl --user start kdock");
+    }
 
     if (debugMode) {
         QLoggingCategory::setFilterRules(
@@ -180,12 +209,15 @@ int main(int argc, char *argv[])
 
     // Resolve QML — search in order: installed path, next to exe, CWD
     const QString exeDir = QCoreApplication::applicationDirPath();
-    const QStringList qmlCandidates = {
+    const QString qmlOverride = parser.value(QStringLiteral("qml-path"));
+    const QStringList qmlCandidates = qmlOverride.isEmpty()
+      ? QStringList{
         QStringLiteral(QML_INSTALL_DIR) + QStringLiteral("/main.qml"),
         exeDir + QStringLiteral("/../qml/main.qml"),
         exeDir + QStringLiteral("/qml/main.qml"),
         QDir::currentPath() + QStringLiteral("/qml/main.qml"),
-    };
+      }
+      : QStringList{ qmlOverride + QStringLiteral("/main.qml") };
 
     QString qmlPath;
     for (const QString &c : qmlCandidates) {

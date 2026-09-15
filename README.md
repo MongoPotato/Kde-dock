@@ -195,8 +195,27 @@ kdock --debug
 ```
 
 Enables verbose QML/Qt/Wayland logging plus startup diagnostics (pinned
-apps, dock position, icon size, QML resolution path) — useful when filing
-an issue or diagnosing window-tracking problems.
+apps, dock position and layer, dock thickness/reserved/interactive sizes,
+auto-hide mode, icon size, QML resolution path) — useful when filing an
+issue or diagnosing window-tracking problems.
+
+**`--debug` takes over from the installed dock.** It stops `kdock.service`
+and asks the running instance to exit before starting, so you get one dock
+rather than two fighting over the same KWin script and DBus name. Put the
+installed one back with:
+
+```bash
+systemctl --user start kdock
+```
+
+Only one kdock can run at a time. A second copy started without `--replace`
+exits immediately and says so.
+
+| Flag | Effect |
+|------|--------|
+| `--debug` | Verbose logging + diagnostics. Implies `--replace`. |
+| `--replace` | Stop any running kdock (service included) and take its place. |
+| `--qml-path <dir>` | Load QML from `<dir>` instead of the normal search order — e.g. run a development build against the installed QML to compare behaviour. |
 
 ```bash
 kdock --help       # all CLI options

@@ -14,11 +14,47 @@ Item {
     property bool dockAnimating: false   // true while the slide-in animation runs
     readonly property bool isHorizontal: position === "bottom" || position === "top"
 
-    // Number of context menus currently open anywhere in the dock — the bar's
-    // own and every DockItem's. main.qml keeps an auto-hiding dock revealed
-    // while this is non-zero: the cursor is over the menu window rather than
-    // the dock, but the user is obviously still working with the dock.
-    property int openMenuCount: 0
+    // The dock's menu and tooltip are SHARED, not one pair per icon.
+    //
+    // Every DockItem used to own a ContextMenu and a Tooltip, and both are
+    // real windows — with eight icons that was eighteen windows alive at all
+    // times, each with its own scene graph, for two that can ever be on
+    // screen at once. Only one menu can be open and only one tooltip shown,
+    // so one of each lives here and the items drive them.
+    readonly property int openMenuCount:
+        (menuLoader.item && menuLoader.item.visible) ? 1 : 0
+
+    // ── Shared popups ─────────────────────────────────────────────────────
+    // Built on first use rather than at startup — a dock that is never
+    // right-clicked never pays for a menu window.
+    function openDockMenu(screenX, screenY) {
+        menuLoader.active = true
+        menuLoader.item.appId = ""
+        menuLoader.item.mode  = "dock"
+        menuLoader.item.openAt(screenX, screenY)
+    }
+
+    function openAppMenu(appId, screenX, screenY) {
+        menuLoader.active = true
+        menuLoader.item.appId = appId
+        menuLoader.item.mode  = "app"
+        menuLoader.item.openAt(screenX, screenY)
+    }
+
+    function showTooltip(item, text) {
+        tooltipLoader.active = true
+        tooltipLoader.item.parentItem = item
+        tooltipLoader.item.text = text
+        tooltipLoader.item.show()
+    }
+
+    // Only the item that put the tooltip up may take it down: the cursor
+    // moving between neighbouring icons produces the new item's show() before
+    // the old item's hide(), which would otherwise cancel it immediately.
+    function hideTooltip(item) {
+        if (tooltipLoader.item && tooltipLoader.item.parentItem === item)
+            tooltipLoader.item.hide()
+    }
 
     onDockVisibleChanged: console.log("[kdock autohide] DockBar.dockVisible →", dockVisible)
 
@@ -86,8 +122,7 @@ Item {
             // relative to the dock and the menu landed nowhere near the click.
             const sp = dockWindow.mapToScreen(eventPoint.position.x,
                                               eventPoint.position.y)
-            barContextMenu.mode = "dock"
-            barContextMenu.openAt(sp.x, sp.y)
+            root.openDockMenu(sp.x, sp.y)
         }
     }
 
@@ -147,9 +182,16 @@ Item {
         }
     }
 
-    // ── Context menu ──────────────────────────────────────────────────────
-    ContextMenu {
-        id: barContextMenu
-        onVisibleChanged: root.openMenuCount += visible ? 1 : -1
+    // ── Shared menu and tooltip (see openMenuCount above) ─────────────────
+    Loader {
+        id: menuLoader
+        active: false
+        sourceComponent: ContextMenu {}
+    }
+
+    Loader {
+        id: tooltipLoader
+        active: false
+        sourceComponent: Tooltip { dockPosition: root.position }
     }
 }

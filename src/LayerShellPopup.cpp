@@ -69,6 +69,13 @@ LayerShellPopup::LayerShellPopup(QWindow *parent)
     }
     setColor(Qt::transparent);
 
+    // A menu or tooltip spends nearly all its life hidden. Letting Qt drop the
+    // scene graph and graphics resources while it is means those bytes aren't
+    // held for a window nobody is looking at; they are rebuilt on next show,
+    // which for a handful of rectangles and labels is not worth keeping warm.
+    setPersistentSceneGraph(false);
+    setPersistentGraphics(false);
+
     connect(this, &QWindow::activeChanged, this, &LayerShellPopup::popupActiveChanged);
 
     // Two menus should never be on screen at once: opening one closes any

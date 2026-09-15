@@ -37,6 +37,7 @@ set(SOURCES
     src/IconProvider.cpp
     src/IconThemeDetector.cpp
     src/SettingsController.cpp
+    src/SingleInstance.cpp
     src/AppLibrary.cpp
 )
 

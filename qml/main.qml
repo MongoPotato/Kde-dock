@@ -35,8 +35,8 @@ Item {
     // A menu or panel opened from the dock keeps it up: the cursor is over
     // that window, not the dock, but the user is plainly still using it.
     readonly property bool menuOpen: dockBar.openMenuCount > 0
-                                  || settingsPanel.visible
-                                  || appPickerPanel.visible
+                                  || (settingsLoader.item && settingsLoader.item.visible)
+                                  || (appPickerLoader.item && appPickerLoader.item.visible)
 
     // Latched "the dock should be up". Only evaluateAutohide() and the hide
     // timer touch it, so the reveal/hide decision lives in exactly one place.
@@ -252,20 +252,33 @@ Item {
     }
 
     // ── App management window (separate OS window) ────────────────────────
-    AppPickerPanel {
-        id: appPickerPanel
-        visible: false
+    // Both panels are built on first use, not at startup. They are whole
+    // windows full of controls — and the app picker pulls in every .desktop
+    // file on the system — for something most sessions never open.
+    Loader {
+        id: appPickerLoader
+        active: false
+        sourceComponent: AppPickerPanel { visible: false }
     }
 
     // ── Visual settings panel ─────────────────────────────────────────────
-    SettingsPanel {
-        id: settingsPanel
+    Loader {
+        id: settingsLoader
+        active: false
+        sourceComponent: SettingsPanel {}
     }
 
     // ── Signal routing ────────────────────────────────────────────────────
     Connections {
         target: settings
-        function onOpenSettingsRequested()  { settingsPanel.open() }
-        function onManageAppsRequested()    { appPickerPanel.visible = true; appPickerPanel.raise() }
+        function onOpenSettingsRequested() {
+            settingsLoader.active = true
+            settingsLoader.item.open()
+        }
+        function onManageAppsRequested() {
+            appPickerLoader.active = true
+            appPickerLoader.item.visible = true
+            appPickerLoader.item.raise()
+        }
     }
 }

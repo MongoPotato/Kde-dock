@@ -20,6 +20,7 @@
 
 import QtQuick 2.15
 import QtQuick.Controls 2.15
+import QtQuick.Window 2.15
 
 Item {
     id: root
@@ -46,6 +47,7 @@ Item {
                 // The hover state itself is a binding (see `state` below) and
                 // drops out on its own; only the one-shot click animations
                 // need unwinding so a hidden icon doesn't come back mid-bounce.
+                dockBar.hideTooltip(root)
                 clickBounceAnim.stop()
                 cycleBounceAnim.stop()
                 minimizeBounceAnim.stop()
@@ -99,8 +101,8 @@ Item {
            ? "hovered" : "normal"
 
     onStateChanged: {
-        if (state === "hovered") tooltip.show()
-        else                     tooltip.hide()
+        if (state === "hovered") dockBar.showTooltip(root, root.displayName)
+        else                     dockBar.hideTooltip(root)
     }
 
     // ── Glow ring behind icon ────────────────────────────────────────────
@@ -192,9 +194,15 @@ Item {
             width:  config.iconSize * (root.state === "hovered" ? config.hoverScaleBoost : 1.0)
             height: width
             source: "image://kdock/" + root.iconName + "?v=" + root.iconVersion
-            // Request at high resolution so the icon stays crisp on HiDPI screens.
-            sourceSize.width:  256
-            sourceSize.height: 256
+            // Decode at the size actually drawn, scaled for the screen and for
+            // the hover zoom, instead of a flat 256x256. A 256x256 ARGB icon is
+            // ~256 kB held in the pixmap cache for something usually painted at
+            // 52 px; this is the same crispness for a fraction of the memory.
+            readonly property int decodeSize:
+                Math.ceil(config.iconSize * config.hoverScaleBoost
+                          * Math.max(1, Screen.devicePixelRatio))
+            sourceSize.width:  decodeSize
+            sourceSize.height: decodeSize
             fillMode: Image.PreserveAspectFit
             smooth: true
             asynchronous: true
@@ -279,9 +287,7 @@ Item {
                 // See DockBar: a layer surface has no usable global mapping.
                 const p = mouse.mapToItem(null, event.x, event.y)
                 const sp = dockWindow.mapToScreen(p.x, p.y)
-                contextMenu.mode  = "app"
-                contextMenu.appId = root.appId
-                contextMenu.openAt(sp.x, sp.y)
+                dockBar.openAppMenu(root.appId, sp.x, sp.y)
             }
         }
 
@@ -290,19 +296,5 @@ Item {
         // in that binding, which then re-evaluates once the slide completes.
     }
 
-    // ── Tooltip ──────────────────────────────────────────────────────────
-    Tooltip {
-        id: tooltip
-        text: root.displayName
-        dockPosition: root.position
-        parentItem: root
-    }
 
-    // ── Context menu (shared ContextMenu component) ──────────────────────
-    ContextMenu {
-        id: contextMenu
-        // Reported up to DockBar so an auto-hiding dock stays revealed while
-        // this menu is open (see DockBar.openMenuCount).
-        onVisibleChanged: root.dockBar.openMenuCount += visible ? 1 : -1
-    }
 }
