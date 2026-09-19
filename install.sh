@@ -9,7 +9,7 @@
 #   5. Copy default_dock.json to ~/.config/kdock/dock.json if not present
 #   6. Create ~/.config/kdock/icons/ directory
 #   7. Install systemd user unit to ~/.config/systemd/user/kdock.service
-#      and run: systemctl --user daemon-reload && systemctl --user enable --now kdock
+#      and run: systemctl --user daemon-reload && systemctl --user enable kdock && systemctl --user restart kdock
 #   8. Install XDG autostart .desktop as fallback
 #   9. Print success message with "kdock --help" reminder
 
@@ -83,8 +83,12 @@ fi
 
 if command -v systemctl &>/dev/null; then
     run systemctl --user daemon-reload
-    run systemctl --user enable --now kdock
-    echo "    KDock enabled and started via systemd."
+    run systemctl --user enable kdock
+    # restart, not "enable --now": --now will not restart a service that is
+    # already running, so a reinstall would leave the old process — and any
+    # corrected unit settings — unapplied.
+    run systemctl --user restart kdock
+    echo "    KDock enabled and (re)started via systemd."
 else
     echo "    systemctl not found — skipping systemd setup."
 fi
