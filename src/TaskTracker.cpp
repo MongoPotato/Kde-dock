@@ -167,6 +167,11 @@ static const char kWinScript[] = R"js(
         workspace.showingDesktopChanged.connect(reportShowingDesktop);
     reportShowingDesktop();
 
+    // Announce that the script is alive inside KWin, with what it can see.
+    // Without this there is no way to tell "the script is running and nothing
+    // is full size" from "the script never loaded" — both look like silence.
+    callDBus(svc, path, iface, 'reportScriptAlive', wins.length);
+
     // Last-resort resync: KWin has no single signal covering every way a
     // window can stop being full size (tiling scripts, activities, effects),
     // and a dock stuck hidden over a clear desktop is much worse than a
@@ -199,11 +204,32 @@ TaskTracker::TaskTracker(QObject *parent)
 
     setupKWinScript();
 
+    // Under --debug, say what the dodge state is every few seconds. A dock
+    // that hides when it shouldn't is otherwise very hard to tell apart from
+    // one whose KWin script never loaded.
+    connect(&m_stateTimer, &QTimer::timeout, this, [this]() {
+        qDebug("kdock [tasktracker]: state — scriptAlive=%s fullSize=%lld "
+               "showingDesktop=%s obstructed=%s dockScreen='%s'",
+               m_scriptAlive ? "yes" : "NO",
+               static_cast<long long>(m_fullSizeWindows.size()),
+               m_showingDesktop ? "yes" : "no",
+               m_dockObstructed ? "yes" : "no",
+               qPrintable(m_dockScreenName));
+    });
+
     // Safety-net poll: if the script hasn't delivered any windows after 3 s,
     // retry setup. After that, back off to every 10 s.
     m_pollTimer.setInterval(3000);
     connect(&m_pollTimer, &QTimer::timeout, this, &TaskTracker::poll);
     m_pollTimer.start();
+}
+
+void TaskTracker::setVerbose(bool on)
+{
+    m_verbose = on;
+    m_stateTimer.setInterval(5000);
+    if (on) m_stateTimer.start();
+    else    m_stateTimer.stop();
 }
 
 TaskTracker::~TaskTracker()
@@ -226,6 +252,11 @@ void TaskTracker::setDockScreenName(const QString &name)
 void TaskTracker::onWindowFullSizeChanged(const QString &uuid, bool fullSize,
                                           const QString &outputName)
 {
+    if (m_verbose && m_fullSizeWindows.contains(uuid) != fullSize) {
+        qDebug("kdock [tasktracker]: window %s is %s (output '%s')",
+               qPrintable(uuid.left(8)), fullSize ? "FULL SIZE" : "windowed",
+               qPrintable(outputName));
+    }
     if (fullSize)
         m_fullSizeWindows.insert(uuid, outputName);
     else if (m_fullSizeWindows.remove(uuid) == 0)
@@ -265,9 +296,11 @@ void TaskTracker::recomputeObstruction()
 
     if (m_dockObstructed == obstructed) return;
     m_dockObstructed = obstructed;
-    qDebug("kdock [tasktracker]: dock %s — %s (%lld full-size window(s) tracked)",
-           obstructed ? "obstructed" : "clear", qPrintable(reason),
-           static_cast<long long>(m_fullSizeWindows.size()));
+    // qInfo, not qDebug: this is the line that says whether dodge is working,
+    // and it is no use only appearing under --debug.
+    qInfo("kdock [tasktracker]: dock %s — %s (%lld full-size window(s) tracked)",
+          obstructed ? "obstructed" : "clear", qPrintable(reason),
+          static_cast<long long>(m_fullSizeWindows.size()));
     emit dockObstructionChanged();
 }
 
@@ -282,6 +315,11 @@ void TaskTracker::setupKWinScript()
         connect(m_bridge, &KWinBridge::windowUrgentChanged, this, &TaskTracker::onWindowUrgentChanged);
         connect(m_bridge, &KWinBridge::windowFullSizeChanged, this, &TaskTracker::onWindowFullSizeChanged);
         connect(m_bridge, &KWinBridge::showingDesktopChanged,  this, &TaskTracker::onShowingDesktopChanged);
+        connect(m_bridge, &KWinBridge::scriptAlive, this, [this](int windowCount) {
+            m_scriptAlive = true;
+            qInfo("kdock [tasktracker]: KWin script running — %d window(s) visible to it",
+                  windowCount);
+        });
     }
 
     // The org.kde.kdock bus name is owned by SingleInstance, which took it

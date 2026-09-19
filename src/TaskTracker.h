@@ -61,6 +61,11 @@ public slots:
     Q_SCRIPTABLE void reportShowingDesktop(bool showing)
     { emit showingDesktopChanged(showing); }
 
+    // Proof of life from inside KWin. Silence from the reports above is
+    // ambiguous without it: no full-size window looks exactly like no script.
+    Q_SCRIPTABLE void reportScriptAlive(int windowCount)
+    { emit scriptAlive(windowCount); }
+
 signals:
     void windowAdded(const QString &uuid, const QString &desktopFile);
     void windowRemoved(const QString &uuid);
@@ -68,6 +73,7 @@ signals:
     void windowUrgentChanged(const QString &uuid, bool urgent);
     void windowFullSizeChanged(const QString &uuid, bool fullSize, const QString &outputName);
     void showingDesktopChanged(bool showing);
+    void scriptAlive(int windowCount);
 };
 
 class TaskTracker : public QObject {
@@ -100,6 +106,9 @@ public:
     // monitor doesn't hide it. Empty means "don't filter by screen".
     void setDockScreenName(const QString &name);
 
+    // Turns on the periodic dodge-state dump used by --debug.
+    void setVerbose(bool on);
+
 signals:
     void runningAppsChanged(const QStringList &appIds);
     void windowUrgent(const QString &appId);
@@ -129,6 +138,9 @@ private:
     QDBusInterface *m_scripting = nullptr;
     KWinBridge     *m_bridge    = nullptr;
     QTimer          m_pollTimer;
+    QTimer          m_stateTimer;
+    bool            m_verbose     = false;
+    bool            m_scriptAlive = false;
     bool            m_scriptLoaded  = false;
     bool            m_bridgeRegistered = false;
     bool            m_dockObstructed = false;
