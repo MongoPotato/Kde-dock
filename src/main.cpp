@@ -16,7 +16,6 @@
 #include "DockModel.h"
 #include "IconProvider.h"
 #include "IconThemeDetector.h"
-#include "LayerShellGlobal.h"
 #include "LayerShellPopup.h"
 #include "LayerShellWindow.h"
 #include "SettingsController.h"
@@ -38,16 +37,6 @@
 
 int main(int argc, char *argv[])
 {
-    // Pick the Wayland QPA plugin when we're plainly in a Wayland session.
-    // kdock needs wlr-layer-shell and KWin's scripting service; under XWayland
-    // it gets neither and degrades into a centred, alt-tabbable window. Qt's
-    // own -platform argument still overrides this, and an explicit
-    // QT_QPA_PLATFORM in the environment is left alone.
-    if (qEnvironmentVariableIsSet("WAYLAND_DISPLAY")
-        && !qEnvironmentVariableIsSet("QT_QPA_PLATFORM")) {
-        qputenv("QT_QPA_PLATFORM", "wayland");
-    }
-
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("kdock"));
     app.setOrganizationDomain(QStringLiteral("kdock"));
@@ -101,13 +90,6 @@ int main(int argc, char *argv[])
                            "qt.quick.loader=true\n"
                            "qt.wayland=true"));
         qDebug("kdock [debug]: Qt %s | QML debug enabled", qVersion());
-        qDebug("kdock [debug]: platform    : %s", qPrintable(app.platformName()));
-        qDebug("kdock [debug]: env         : WAYLAND_DISPLAY=%s DISPLAY=%s QT_QPA_PLATFORM=%s",
-               qgetenv("WAYLAND_DISPLAY").constData(),
-               qgetenv("DISPLAY").constData(),
-               qgetenv("QT_QPA_PLATFORM").constData());
-        qDebug("kdock [debug]: layer shell : %s",
-               qPrintable(LayerShellGlobal::diagnostics()));
     }
 
     // Detect KDE icon theme first so all subsequent QIcon::fromTheme() calls
@@ -116,7 +98,6 @@ int main(int argc, char *argv[])
 
     ConfigWatcher config;
     TaskTracker taskTracker;
-    taskTracker.setVerbose(debugMode);
     DockModel dockModel(&config);
     dockModel.setTaskTracker(&taskTracker);
     dockModel.setIconThemeDetector(&iconThemeDetector);
@@ -283,15 +264,5 @@ int main(int argc, char *argv[])
         qDebug("kdock [debug]: QML loaded  : status=%d", static_cast<int>(window.status()));
 
     window.show();
-
-    if (debugMode) {
-        // After show(), so this reports what actually happened rather than
-        // what was intended.
-        qDebug("kdock [debug]: surface     : %s",
-               window.usingLayerSurface()
-                   ? "layer-shell (anchored, out of alt-tab, reserves space)"
-                   : "ORDINARY WINDOW — not anchored, appears in alt-tab");
-    }
-
     return app.exec();
 }

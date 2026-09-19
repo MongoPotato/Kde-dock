@@ -103,24 +103,10 @@ void LayerShellWindow::showEvent(QShowEvent *event)
     if (m_shellApplied) return;
     m_shellApplied = true;
 
-    if (m_isWayland && m_layerShell) {
+    if (m_isWayland && m_layerShell)
         setupWaylandLayerSurface();
-    } else if (m_isWayland) {
-        // Wayland, but no layer shell. applyX11Geometry() must NOT run here:
-        // setGeometry() position is ignored on Wayland, so the dock ends up
-        // wherever the compositor feels like putting it — in practice centred
-        // — and the flags it sets produce an ordinary xdg-toplevel, which is
-        // why such a dock also turns up in alt-tab. Better to say so.
-        qWarning("kdock: %s.\n"
-                 "       The dock cannot anchor itself to a screen edge without "
-                 "wlr-layer-shell and will behave like an ordinary window.\n"
-                 "       On a KDE Plasma 6 Wayland session this usually means "
-                 "kdock was started under XWayland — check that WAYLAND_DISPLAY "
-                 "is set and QT_QPA_PLATFORM is not forcing xcb.",
-                 qPrintable(LayerShellGlobal::diagnostics()));
-    } else {
+    else
         applyX11Geometry();
-    }
 
     // The surface only exists from here on, so this is the earliest point a
     // hidden-at-startup dock can have its reveal-strip input region applied.

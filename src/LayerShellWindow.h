@@ -75,10 +75,6 @@ public:
 
     void setBlurEnabled(bool enabled);
 
-    // True when the dock really did get a layer surface — i.e. it is anchored
-    // to a screen edge, stays out of alt-tab, and reserves space properly.
-    bool usingLayerSurface() const { return m_layerSurface != nullptr; }
-
     // The dock's rectangle in global screen coordinates.
     //
     // A Wayland client is never told where its own surface ended up, so Qt

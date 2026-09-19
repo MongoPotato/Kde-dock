@@ -217,25 +217,6 @@ exits immediately and says so.
 | `--replace` | Stop any running kdock (service included) and take its place. |
 | `--qml-path <dir>` | Load QML from `<dir>` instead of the normal search order — e.g. run a development build against the installed QML to compare behaviour. |
 
-`--debug` reports what the dock actually became, which is the first thing to
-check when it misbehaves:
-
-```
-kdock [debug]: platform    : wayland
-kdock [debug]: layer shell : Wayland, zwlr_layer_shell_v1 v4
-kdock [debug]: surface     : layer-shell (anchored, out of alt-tab, reserves space)
-kdock [tasktracker]: KWin script running — 7 window(s) visible to it
-kdock [tasktracker]: state — scriptAlive=yes fullSize=1 showingDesktop=no obstructed=yes ...
-```
-
-If `surface` says *ORDINARY WINDOW*, the dock did not get a layer surface: it
-will float wherever the compositor puts it (usually centred), turn up in
-alt-tab, and reserve no space. That means the session isn't Wayland, or
-`QT_QPA_PLATFORM` is forcing `xcb`.
-
-If `scriptAlive=NO`, KWin never loaded the tracking script, so running-window
-state and `dodge` cannot work regardless of configuration.
-
 ```bash
 kdock --help       # all CLI options
 kdock --version

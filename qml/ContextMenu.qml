@@ -154,7 +154,7 @@ LayerPopup {
 
     Timer {
         id: closeGuard
-        interval: 3500
+        interval: 2000
         running:  root.visible && root._pointerVisited
                   && !menuHover.hovered && !openFloor.running
         repeat:   false

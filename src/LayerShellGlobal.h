@@ -9,8 +9,6 @@
 // window, whether layer-shell is usable at all — which is what decides
 // between the layer-shell path and the plain-window fallback.
 
-#include <QString>
-
 #include <cstdint>
 
 struct zwlr_layer_shell_v1;
@@ -37,9 +35,5 @@ wl_surface *surfaceFor(QWindow *window);
 
 // Block until the compositor has processed everything sent so far.
 void roundtrip();
-
-// One line describing what was found, for --debug and for the warning shown
-// when the dock has to fall back to behaving like an ordinary window.
-QString diagnostics();
 
 } // namespace LayerShellGlobal
