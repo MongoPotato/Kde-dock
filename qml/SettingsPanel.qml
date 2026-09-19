@@ -252,11 +252,9 @@ Window {
                         Text { text: "Dock visibility"; color: "white"; font.pixelSize: 13 }
                         Text {
                             text: {
-                                switch (config.autohideMode) {
-                                case "always": return "Hidden until the cursor reaches the edge"
-                                case "dodge":  return "Hides only while a window covers the dock"
-                                default:       return "Always on screen"
-                                }
+                                return config.autohideMode === "always"
+                                       ? "Hidden until the cursor reaches the edge"
+                                       : "Always on screen"
                             }
                             color: "#888"; font.pixelSize: 11
                         }
@@ -265,8 +263,8 @@ Window {
                     ComboBox {
                         id: visibilityMode
                         Layout.minimumWidth: 190
-                        model: ["Always visible", "Hide when in the way", "Always auto-hide"]
-                        readonly property var modeKeys: ["never", "dodge", "always"]
+                        model: ["Always visible", "Always auto-hide"]
+                        readonly property var modeKeys: ["never", "always"]
                         currentIndex: modeKeys.indexOf(config.autohideMode) >= 0
                                       ? modeKeys.indexOf(config.autohideMode) : 0
                         background: Rectangle { color: "#3a3a5e"; radius: 4; border.color: "#555577"; border.width: 1 }

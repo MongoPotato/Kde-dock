@@ -62,7 +62,7 @@ void SettingsController::applyAutohideDelay(int ms)
 void SettingsController::applyAutohideMode(const QString &mode)
 {
     static const QStringList valid{
-        QStringLiteral("never"), QStringLiteral("always"), QStringLiteral("dodge"),
+        QStringLiteral("never"), QStringLiteral("always"),
     };
     if (valid.contains(mode))
         m_config->setAutohideMode(mode);

@@ -281,8 +281,11 @@ int ConfigWatcher::dockWindowThickness() const
 QString ConfigWatcher::autohideMode() const
 {
     const QString v = m_config.value(QStringLiteral("autohideMode")).toString();
+    // "dodge" was a third mode that hid the dock only while a window covered
+    // it. It never became reliable enough to keep, so a config still asking
+    // for it falls back to the safe option: a dock that stays put.
     static const QStringList valid{
-        QStringLiteral("never"), QStringLiteral("always"), QStringLiteral("dodge"),
+        QStringLiteral("never"), QStringLiteral("always"),
     };
     if (valid.contains(v))
         return v;

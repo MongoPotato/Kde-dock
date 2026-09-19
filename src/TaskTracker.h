@@ -50,24 +50,11 @@ public slots:
     Q_SCRIPTABLE void reportWindowUrgent(const QString &uuid, bool urgent)
     { emit windowUrgentChanged(uuid, urgent); }
 
-    // Full-window state, reported per window on every change — the same
-    // shape as the add/remove/urgency reports above, deliberately.
-    Q_SCRIPTABLE void reportWindowFullSize(const QString &uuid, bool fullSize,
-                                           const QString &outputName)
-    { emit windowFullSizeChanged(uuid, fullSize, outputName); }
-
-    // "Show desktop" hides windows without minimising them, so it can't be
-    // inferred from the per-window state and has to be reported separately.
-    Q_SCRIPTABLE void reportShowingDesktop(bool showing)
-    { emit showingDesktopChanged(showing); }
-
 signals:
     void windowAdded(const QString &uuid, const QString &desktopFile);
     void windowRemoved(const QString &uuid);
     void windowActivated(const QString &uuid);
     void windowUrgentChanged(const QString &uuid, bool urgent);
-    void windowFullSizeChanged(const QString &uuid, bool fullSize, const QString &outputName);
-    void showingDesktopChanged(bool showing);
 };
 
 class TaskTracker : public QObject {
@@ -88,17 +75,6 @@ public:
 
     Q_PROPERTY(QString activeAppId READ activeAppId NOTIFY activeAppChanged)
 
-    // True while a full-size (maximised or fullscreen) window is on screen on
-    // the dock's own output, and the desktop isn't being shown. Drives dodge
-    // mode: the dock only gets out of the way when something really is
-    // covering it.
-    Q_PROPERTY(bool dockObstructed READ dockObstructed NOTIFY dockObstructionChanged)
-
-    bool dockObstructed() const { return m_dockObstructed; }
-
-    // Name of the output the dock is on, so a maximised window on a second
-    // monitor doesn't hide it. Empty means "don't filter by screen".
-    void setDockScreenName(const QString &name);
 
 signals:
     void runningAppsChanged(const QStringList &appIds);
@@ -106,7 +82,6 @@ signals:
     void windowNotUrgent(const QString &appId);
     void windowCountChanged(const QString &appId, int count);
     void activeAppChanged(const QString &appId);
-    void dockObstructionChanged();
 
 private slots:
     void poll();
@@ -114,8 +89,6 @@ private slots:
     void onWindowRemoved(const QString &uuid);
     void onWindowActivated(const QString &uuid);
     void onWindowUrgentChanged(const QString &uuid, bool urgent);
-    void onWindowFullSizeChanged(const QString &uuid, bool fullSize, const QString &outputName);
-    void onShowingDesktopChanged(bool showing);
 
 private:
     void        setupKWinScript();
@@ -123,7 +96,6 @@ private:
     void        addWindow(const QString &uuid, const QString &desktopFile);
     void        removeWindow(const QString &uuid);
     void        rebuildRunningApps();
-    void        recomputeObstruction();
     QStringList windowsForApp(const QString &appId) const;
 
     QDBusInterface *m_scripting = nullptr;
@@ -131,10 +103,6 @@ private:
     QTimer          m_pollTimer;
     bool            m_scriptLoaded  = false;
     bool            m_bridgeRegistered = false;
-    bool            m_dockObstructed = false;
-    bool            m_showingDesktop = false;
-    QString         m_dockScreenName;
-    QHash<QString, QString> m_fullSizeWindows;   // uuid → output name
     int             m_actionCounter = 0;
 
     QMap<QString, QString> m_windowAppIds;   // uuid  → appId

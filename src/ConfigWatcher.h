@@ -62,9 +62,7 @@ class ConfigWatcher : public QObject {
 
     // ── Behaviour ─────────────────────────────────────────────────────────
     // "never"  — dock always shown, reserves its strip (the default)
-    // "always"  — classic auto-hide: hidden until the cursor reaches the edge
-    // "dodge"   — shown over the desktop, hides only while a window actually
-    //             overlaps the dock's strip, and comes back when it doesn't
+    // "always" — auto-hide: hidden until the cursor reaches the screen edge
     Q_PROPERTY(QString autohideMode READ autohideMode NOTIFY configChanged)
     // Legacy boolean, kept so old configs and existing bindings keep working.
     // Equivalent to autohideMode === "always".

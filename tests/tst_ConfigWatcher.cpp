@@ -248,12 +248,28 @@ private slots:
         QDir().mkpath(configDir);
         QFile f(configDir + QStringLiteral("/dock.json"));
         QVERIFY(f.open(QIODevice::WriteOnly));
-        f.write(R"({"autohide":true,"autohideMode":"dodge"})");
+        f.write(R"({"autohide":true,"autohideMode":"never"})");
         f.close();
 
         ConfigWatcher cw;
-        QCOMPARE(cw.autohideMode(), QStringLiteral("dodge"));
-        // dodge is not "always", so the legacy accessor must report false
+        QCOMPARE(cw.autohideMode(), QStringLiteral("never"));
+        // "never" is not "always", so the legacy accessor must report false
+        QCOMPARE(cw.autohide(), false);
+    }
+
+    // A config left over from when "dodge" existed must land somewhere safe —
+    // a dock that stays put — rather than in an undefined state
+    void test_retiredDodgeModeFallsBackToNever()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohideMode":"dodge"})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideMode(), QStringLiteral("never"));
         QCOMPARE(cw.autohide(), false);
     }
 
@@ -281,9 +297,9 @@ private slots:
         QCOMPARE(cw.autohideMode(), QStringLiteral("always"));
         QCOMPARE(cw.autohide(), true);
 
-        cw.setAutohideMode(QStringLiteral("dodge"));
+        cw.setAutohideMode(QStringLiteral("never"));
         cw.reload();
-        QCOMPARE(cw.autohideMode(), QStringLiteral("dodge"));
+        QCOMPARE(cw.autohideMode(), QStringLiteral("never"));
         QCOMPARE(cw.autohide(), false);
     }
 

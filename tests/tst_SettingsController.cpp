@@ -219,10 +219,18 @@ private slots:
 
     // ── applyAutohideMode ─────────────────────────────────────────────────
 
-    void test_applyAutohideMode_acceptsDodge()
+    void test_applyAutohideMode_acceptsAlways()
     {
+        m_sc->applyAutohideMode(QStringLiteral("always"));
+        QCOMPARE(m_config->autohideMode(), QStringLiteral("always"));
+    }
+
+    // "dodge" was retired; writing it must be refused like any other junk
+    void test_applyAutohideMode_rejectsRetiredDodge()
+    {
+        m_sc->applyAutohideMode(QStringLiteral("never"));
         m_sc->applyAutohideMode(QStringLiteral("dodge"));
-        QCOMPARE(m_config->autohideMode(), QStringLiteral("dodge"));
+        QCOMPARE(m_config->autohideMode(), QStringLiteral("never"));
     }
 
     // A junk mode must be rejected outright rather than written to the file
@@ -236,7 +244,7 @@ private slots:
     void test_applyAutohideMode_allValidModes()
     {
         const QStringList modes{
-            QStringLiteral("never"), QStringLiteral("always"), QStringLiteral("dodge"),
+            QStringLiteral("never"), QStringLiteral("always"),
         };
         for (const QString &m : modes) {
             m_sc->applyAutohideMode(m);

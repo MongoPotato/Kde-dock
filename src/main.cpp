@@ -139,18 +139,13 @@ int main(int argc, char *argv[])
     // Auto-hide reserves nothing: a dock that gets out of the way by itself
     // has no business permanently carving out the screen edge.
     auto applyDockGeometry = [&]() {
-        // Only "never" reserves space. Both auto-hide and dodge need windows
-        // to be allowed into the strip — reserving it would mean nothing ever
-        // overlaps the dock and dodge could never trigger.
-        const bool reserving = config.reserveSpace()
-                            && config.autohideMode() == QStringLiteral("never");
+        // An auto-hiding dock reserves nothing: it gets out of the way by
+        // itself, so permanently carving out the screen edge would be wrong.
+        const bool reserving = config.reserveSpace() && !config.autohide();
         window.setExclusiveZone(reserving ? config.dockReservedThickness() : 0);
         window.setInteractiveThickness(config.dockReservedThickness());
         window.setThickness(config.dockWindowThickness());
 
-        // So a maximised window on another monitor doesn't hide this dock.
-        taskTracker.setDockScreenName(window.screen() ? window.screen()->name()
-                                                      : QString());
     };
     applyDockGeometry();
 

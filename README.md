@@ -167,12 +167,10 @@ its hide delay) — or edit `dock.json` directly:
   "padding": 8,
   "spacing": 6,
   "autohide": false,           // legacy; same as autohideMode "always"
-  "autohideMode": "never",     // never | dodge | always
+  "autohideMode": "never",     // never | always
                                //   never  — dock always on screen
-                               //   dodge  — hides only while a window actually
-                               //            covers the dock's strip, and comes
-                               //            back when it doesn't
-                               //   always — classic auto-hide
+                               //   always — auto-hide: hidden until the cursor
+                               //            reaches the screen edge
   "autohideDelayMs": 2500,     // how long after the cursor leaves the icon
                                // bar before the dock slides away (250–10000)
   "reserveSpace": true,        // keep other windows out of the dock's strip.

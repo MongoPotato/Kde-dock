@@ -45,14 +45,9 @@ Item {
     // Keeps the icon strip rendered until the slide-out has actually finished.
     property bool contentRendered: true
 
-    // Whether hiding behaviour applies right now.
-    //   "always" — yes, unconditionally
-    //   "dodge"  — only while a window actually overlaps the dock's strip;
-    //              the rest of the time the dock behaves like a fixed one
-    //   "never"  — no
-    readonly property bool autohideActive:
-        config.autohideMode === "always"
-        || (config.autohideMode === "dodge" && taskTracker.dockObstructed)
+    // Whether hiding behaviour applies right now. Two modes only: the dock
+    // either stays put or auto-hides.
+    readonly property bool autohideActive: config.autohideMode === "always"
 
     readonly property bool dockVisible: !autohideActive || dockHeld
 
@@ -96,9 +91,6 @@ Item {
 
     onPointerOnDockChanged:  evaluateAutohide()
     onMenuOpenChanged:       evaluateAutohide()
-    // A window moving into or out of the dock's strip is what drives dodge:
-    // re-decide as soon as that changes, and reset the latch so a dock that
-    // was held up by the cursor doesn't stay up once the strip is clear.
     onAutohideActiveChanged: {
         if (!autohideActive) root.dockHeld = false
         evaluateAutohide()
@@ -124,7 +116,6 @@ Item {
         console.log("[kdock autohide] dockVisible →", dockVisible,
                     "  mode:", config.autohideMode,
                     "  active:", autohideActive,
-                    "  obstructed:", taskTracker.dockObstructed,
                     "  dockHeld:", dockHeld)
         if (dockVisible) {
             // Lock out hover-on-icon animations while the dock slides in
