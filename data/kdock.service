@@ -14,21 +14,8 @@ Type=simple
 ExecStart=%h/.local/bin/kdock
 Restart=on-failure
 RestartSec=3
+Environment=WAYLAND_DISPLAY=%i
 TimeoutStartSec=30
-
-# Deliberately NO Environment=WAYLAND_DISPLAY here.
-#
-# This unit used to carry "Environment=WAYLAND_DISPLAY=%i". %i is the instance
-# name specifier, which only means anything in a template unit (kdock@.service)
-# — in a plain unit systemd.unit(5) defines it as empty. So that line did not
-# pass the Wayland display through; it OVERRODE whatever the session had
-# imported with an empty string, leaving kdock unable to find the compositor
-# socket and liable to fall back to XWayland, where it gets neither
-# wlr-layer-shell nor a dock anchored to the screen edge.
-#
-# The Plasma session imports WAYLAND_DISPLAY into the systemd user manager, so
-# inheriting it is both correct and sufficient. If kdock ever starts without
-# it, check:  systemctl --user show-environment | grep WAYLAND_DISPLAY
 
 [Install]
 WantedBy=graphical-session.target
