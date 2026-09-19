@@ -16,6 +16,7 @@
 #include "DockModel.h"
 #include "IconProvider.h"
 #include "IconThemeDetector.h"
+#include "LayerShellGlobal.h"
 #include "LayerShellPopup.h"
 #include "LayerShellWindow.h"
 #include "SettingsController.h"
@@ -90,6 +91,13 @@ int main(int argc, char *argv[])
                            "qt.quick.loader=true\n"
                            "qt.wayland=true"));
         qDebug("kdock [debug]: Qt %s | QML debug enabled", qVersion());
+        qDebug("kdock [debug]: platform    : %s", qPrintable(app.platformName()));
+        qDebug("kdock [debug]: env         : WAYLAND_DISPLAY='%s' DISPLAY='%s' QT_QPA_PLATFORM='%s'",
+               qgetenv("WAYLAND_DISPLAY").constData(),
+               qgetenv("DISPLAY").constData(),
+               qgetenv("QT_QPA_PLATFORM").constData());
+        qDebug("kdock [debug]: layer shell : %s",
+               qPrintable(LayerShellGlobal::diagnostics()));
     }
 
     // Detect KDE icon theme first so all subsequent QIcon::fromTheme() calls

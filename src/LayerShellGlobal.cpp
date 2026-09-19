@@ -7,6 +7,8 @@
 #include "wayland-wlr-layer-shell-unstable-v1-client-protocol.h"
 #include <wayland-client.h>
 
+#include <QString>
+
 #include <cstring>
 
 namespace {
@@ -87,6 +89,16 @@ wl_surface *surfaceFor(QWindow *window)
     QPlatformNativeInterface *ni = QGuiApplication::platformNativeInterface();
     if (!ni || !window) return nullptr;
     return static_cast<wl_surface *>(ni->nativeResourceForWindow("wl_surface", window));
+}
+
+QString diagnostics()
+{
+    probe();
+    if (!g_binding.wayland)
+        return QStringLiteral("no wl_display — not running on Wayland");
+    if (!g_binding.shell)
+        return QStringLiteral("Wayland, but zwlr_layer_shell_v1 was NOT bound");
+    return QStringLiteral("Wayland, zwlr_layer_shell_v1 v%1 bound").arg(g_binding.version);
 }
 
 void roundtrip()

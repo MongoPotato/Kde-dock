@@ -108,6 +108,21 @@ void LayerShellWindow::showEvent(QShowEvent *event)
     else
         applyX11Geometry();
 
+    // Purely informational — the control flow above is unchanged. A dock that
+    // did not get a layer surface is the one that floats in the middle of the
+    // screen and turns up in alt-tab, so it should say so rather than leaving
+    // it to be guessed at.
+    if (m_layerSurface) {
+        qInfo("kdock [surface]: layer-shell surface created — anchored '%s', "
+              "thickness %d, exclusive zone %d",
+              qPrintable(m_anchor), m_thickness, m_exclusiveZone);
+    } else {
+        qWarning("kdock [surface]: NO layer-shell surface (%s).\n"
+                 "                 The dock will float where the compositor puts "
+                 "it — usually centred — and appear in alt-tab.",
+                 qPrintable(LayerShellGlobal::diagnostics()));
+    }
+
     // The surface only exists from here on, so this is the earliest point a
     // hidden-at-startup dock can have its reveal-strip input region applied.
     applyInputMask();
