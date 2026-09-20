@@ -52,6 +52,27 @@ void SettingsController::applyAutohide(bool on)
     m_config->setAutohide(on);
 }
 
+// Floor of 250 ms keeps the dock from snapping shut the moment the cursor
+// clips its edge; ceiling of 10 s keeps a mis-set slider from pinning it open.
+void SettingsController::applyAutohideDelay(int ms)
+{
+    m_config->setAutohideDelayMs(qBound(250, ms, 10000));
+}
+
+void SettingsController::applyAutohideMode(const QString &mode)
+{
+    static const QStringList valid{
+        QStringLiteral("never"), QStringLiteral("always"),
+    };
+    if (valid.contains(mode))
+        m_config->setAutohideMode(mode);
+}
+
+void SettingsController::applyReserveSpace(bool on)
+{
+    m_config->setReserveSpace(on);
+}
+
 void SettingsController::applyIconBgShape(const QString &shape)
 {
     static const QStringList valid{

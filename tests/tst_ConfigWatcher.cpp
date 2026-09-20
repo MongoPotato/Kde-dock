@@ -70,6 +70,285 @@ private slots:
         // No crash; unknown key is ignored
     }
 
+    // A config predating autohideDelayMs must still get a usable, generous
+    // delay rather than 0 — a 0 ms delay hides the dock the instant the
+    // cursor clips its edge.
+    void test_autohideDelayDefaultsWhenAbsent()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohide":true})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohide(), true);
+        QCOMPARE(cw.autohideDelayMs(), 2500);
+    }
+
+    // An explicit autohideDelayMs in the file must win over the default
+    void test_autohideDelayReadFromConfig()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohideDelayMs":4000})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideDelayMs(), 4000);
+    }
+
+    // setAutohideDelayMs() must persist so the value survives a reload
+    void test_setAutohideDelayMs_persists()
+    {
+        ConfigWatcher cw;
+        cw.setAutohideDelayMs(3750);
+        cw.reload();
+        QCOMPARE(cw.autohideDelayMs(), 3750);
+    }
+
+    // resetToDefaults() must leave the delay at the built-in default
+    void test_resetToDefaults_restoresAutohideDelay()
+    {
+        ConfigWatcher cw;
+        cw.setAutohideDelayMs(9000);
+        cw.resetToDefaults();
+        QCOMPARE(cw.autohideDelayMs(), 2500);
+    }
+
+    // ── Derived dock geometry ─────────────────────────────────────────────
+    //
+    // The regression these guard: the reserved strip used to be computed as
+    // iconSize + padding * 2, which is SHORTER than the icon row it contains
+    // (the row adds its own icon-background padding and sits `padding` off the
+    // edge). Windows were then laid out over the top of the icons.
+
+    // The painted dock must be at least as thick as the row of items in it
+    void test_visualThicknessCoversIconRow()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"iconSize":52,"padding":8,"iconBackground":{"padding":6}})");
+        f.close();
+
+        ConfigWatcher cw;
+        // Row extent: padding + iconSize + iconBgPadding * 2 + 4 = 8 + 68 = 76,
+        // against a background strip of iconSize + padding * 2 = 68.
+        QCOMPARE(cw.dockVisualThickness(), 76);
+        QVERIFY(cw.dockVisualThickness() >= cw.iconSize() + cw.padding() * 2);
+    }
+
+    // A large icon-background padding must widen the dock, not overflow it
+    void test_visualThicknessFollowsIconBgPadding()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"iconSize":40,"padding":4,"iconBackground":{"padding":20}})");
+        f.close();
+
+        ConfigWatcher cw;
+        // 4 + 40 + 40 + 4 = 88, comfortably past the 48 px background strip
+        QCOMPARE(cw.dockVisualThickness(), 88);
+    }
+
+    // Tiny icon backgrounds must not shrink the dock below its own background
+    void test_visualThicknessNeverBelowBackgroundStrip()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"iconSize":48,"padding":20,"iconBackground":{"padding":0}})");
+        f.close();
+
+        ConfigWatcher cw;
+        // Strip 48 + 40 = 88 wins over the row's 20 + 52 = 72
+        QCOMPARE(cw.dockVisualThickness(), 88);
+    }
+
+    // Reserved space must include the hover lift, so a raised icon stays
+    // inside the dock's own space instead of over the window behind it
+    void test_reservedThicknessIncludesHoverLift()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"iconSize":52,"padding":8,"iconBackground":{"padding":6},"hover":{"liftPx":10}})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.dockReservedThickness(), cw.dockVisualThickness() + 10);
+        QCOMPARE(cw.dockReservedThickness(), 86);
+    }
+
+    // The window is taller than the reserved strip (click-bounce headroom),
+    // and that ordering is what keeps the bounce from being clipped
+    void test_windowThicknessExceedsReserved()
+    {
+        ConfigWatcher cw;
+        QVERIFY(cw.dockWindowThickness() > cw.dockReservedThickness());
+        QVERIFY(cw.dockReservedThickness() >= cw.dockVisualThickness());
+    }
+
+    // ── reserveSpace ──────────────────────────────────────────────────────
+
+    // Defaults to on: a dock that reserves nothing sits over other windows
+    void test_reserveSpaceDefaultsOn()
+    {
+        ConfigWatcher cw;
+        QCOMPARE(cw.reserveSpace(), true);
+    }
+
+    // ...and survives a reload once turned off
+    void test_setReserveSpace_persists()
+    {
+        ConfigWatcher cw;
+        cw.setReserveSpace(false);
+        cw.reload();
+        QCOMPARE(cw.reserveSpace(), false);
+    }
+
+    // ── autohideMode ──────────────────────────────────────────────────────
+
+    // A config written before dodge existed must keep behaving as it did:
+    // the legacy boolean decides the mode when autohideMode is absent
+    void test_autohideModeFallsBackToLegacyBool()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohide":true})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideMode(), QStringLiteral("always"));
+        QCOMPARE(cw.autohide(), true);
+    }
+
+    void test_autohideModeDefaultsToNever()
+    {
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideMode(), QStringLiteral("never"));
+        QCOMPARE(cw.autohide(), false);
+    }
+
+    // An explicit mode wins over the legacy boolean, however stale that is
+    void test_autohideModeOverridesLegacyBool()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohide":true,"autohideMode":"never"})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideMode(), QStringLiteral("never"));
+        // "never" is not "always", so the legacy accessor must report false
+        QCOMPARE(cw.autohide(), false);
+    }
+
+    // A config left over from when "dodge" existed must land somewhere safe —
+    // a dock that stays put — rather than in an undefined state
+    void test_retiredDodgeModeFallsBackToNever()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohideMode":"dodge"})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideMode(), QStringLiteral("never"));
+        QCOMPARE(cw.autohide(), false);
+    }
+
+    // A junk mode must not leave the dock in an undefined state
+    void test_autohideModeRejectsUnknownValue()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohideMode":"sideways"})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideMode(), QStringLiteral("never"));
+    }
+
+    // Writing the mode must keep the legacy key in step, so anything else
+    // reading the file (or an older build) still sees the right thing
+    void test_setAutohideMode_keepsLegacyKeyInStep()
+    {
+        ConfigWatcher cw;
+        cw.setAutohideMode(QStringLiteral("always"));
+        cw.reload();
+        QCOMPARE(cw.autohideMode(), QStringLiteral("always"));
+        QCOMPARE(cw.autohide(), true);
+
+        cw.setAutohideMode(QStringLiteral("never"));
+        cw.reload();
+        QCOMPARE(cw.autohideMode(), QStringLiteral("never"));
+        QCOMPARE(cw.autohide(), false);
+    }
+
+    // The legacy setter must still work and map onto the new modes
+    void test_setAutohide_mapsOntoModes()
+    {
+        ConfigWatcher cw;
+        cw.setAutohide(true);
+        QCOMPARE(cw.autohideMode(), QStringLiteral("always"));
+        cw.setAutohide(false);
+        QCOMPARE(cw.autohideMode(), QStringLiteral("never"));
+    }
+
+    // ── layer ─────────────────────────────────────────────────────────────
+
+    // Defaults to "top": a dock stacked below ordinary windows is invisible
+    // over a maximised one, which makes auto-hide and dodge pointless
+    void test_layerDefaultsToTop()
+    {
+        ConfigWatcher cw;
+        QCOMPARE(cw.layer(), QStringLiteral("top"));
+    }
+
+    void test_layerReadFromConfig()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"layer":"bottom"})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.layer(), QStringLiteral("bottom"));
+    }
+
+    void test_layerRejectsUnknownValue()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"layer":"somewhere"})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.layer(), QStringLiteral("top"));
+    }
+
     // Verify that a corrupt JSON file falls back to defaults without crashing
     void test_fallsBackOnCorruptJson()
     {

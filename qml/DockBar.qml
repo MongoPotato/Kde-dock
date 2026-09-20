@@ -14,19 +14,66 @@ Item {
     property bool dockAnimating: false   // true while the slide-in animation runs
     readonly property bool isHorizontal: position === "bottom" || position === "top"
 
+    // The dock's menu and tooltip are SHARED, not one pair per icon.
+    //
+    // Every DockItem used to own a ContextMenu and a Tooltip, and both are
+    // real windows — with eight icons that was eighteen windows alive at all
+    // times, each with its own scene graph, for two that can ever be on
+    // screen at once. Only one menu can be open and only one tooltip shown,
+    // so one of each lives here and the items drive them.
+    readonly property int openMenuCount:
+        (menuLoader.item && menuLoader.item.visible) ? 1 : 0
+
+    // ── Shared popups ─────────────────────────────────────────────────────
+    // Built on first use rather than at startup — a dock that is never
+    // right-clicked never pays for a menu window.
+    function openDockMenu(screenX, screenY) {
+        menuLoader.active = true
+        menuLoader.item.appId = ""
+        menuLoader.item.mode  = "dock"
+        menuLoader.item.openAt(screenX, screenY)
+    }
+
+    function openAppMenu(appId, screenX, screenY) {
+        menuLoader.active = true
+        menuLoader.item.appId = appId
+        menuLoader.item.mode  = "app"
+        menuLoader.item.openAt(screenX, screenY)
+    }
+
+    function showTooltip(item, text) {
+        tooltipLoader.active = true
+        tooltipLoader.item.parentItem = item
+        tooltipLoader.item.text = text
+        tooltipLoader.item.show()
+    }
+
+    // Only the item that put the tooltip up may take it down: the cursor
+    // moving between neighbouring icons produces the new item's show() before
+    // the old item's hide(), which would otherwise cancel it immediately.
+    function hideTooltip(item) {
+        if (tooltipLoader.item && tooltipLoader.item.parentItem === item)
+            tooltipLoader.item.hide()
+    }
+
     onDockVisibleChanged: console.log("[kdock autohide] DockBar.dockVisible →", dockVisible)
 
-    implicitWidth:  isHorizontal ? itemRow.implicitWidth    + config.padding * 2
-                                 : config.iconSize          + config.padding * 2
-    implicitHeight: isHorizontal ? config.iconSize          + config.padding * 2
+    implicitWidth:  isHorizontal ? itemRow.implicitWidth     + config.padding * 2
+                                 : config.dockVisualThickness
+    implicitHeight: isHorizontal ? config.dockVisualThickness
                                  : itemColumn.implicitHeight + config.padding * 2
 
     // ── Background ───────────────────────────────────────────────────────
     // Anchored to the dock EDGE. The window may be taller than the strip
     // (to allow hover-lift overflow) so the background only fills the
     // visual strip, not the entire window.
+    //
+    // stripSize comes from config.dockVisualThickness, the same number the
+    // compositor is asked to reserve. Computing it here as
+    // iconSize + padding * 2 made the background SHORTER than the icon row it
+    // contains — icon pills and glow rings poked out of the top of the bar.
     Rectangle {
-        readonly property int stripSize: config.iconSize + config.padding * 2
+        readonly property int stripSize: config.dockVisualThickness
 
         anchors.left:   (isHorizontal || position === "left")  ? parent.left  : undefined
         anchors.right:  (isHorizontal || position === "right") ? parent.right : undefined
@@ -56,23 +103,26 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 150 } }
     }
 
-    // ── Mouse area for right-click dock menu ──────────────────────────────
-    MouseArea {
-        id: barMouse
-        anchors.fill: parent
-        hoverEnabled: false
+    // ── Right-click → dock menu ───────────────────────────────────────────
+    // A TapHandler rather than a MouseArea. The MouseArea this replaces had to
+    // win an exclusive grab over the whole bar to see a click, so it competed
+    // with everything else on the dock and right-clicks on the free area were
+    // easy to lose. A handler is offered the event on its own and fires on
+    // release-within-bounds, so the menu comes up wherever the bar itself is
+    // under the cursor. Icons still answer their own right-click first (their
+    // MouseArea is in front), which is the more specific menu of the two.
+    TapHandler {
+        id: barRightClick
         acceptedButtons: Qt.RightButton
-        propagateComposedEvents: true
+        gesturePolicy: TapHandler.ReleaseWithinBounds
 
-        onClicked: (event) => {
-            if (event.button === Qt.RightButton) {
-                const sp = barMouse.mapToGlobal(event.x, event.y)
-                barContextMenu.mode = "dock"
-                barContextMenu.openAt(sp.x, sp.y)
-                event.accepted = true
-            } else {
-                event.accepted = false
-            }
+        onSingleTapped: (eventPoint, button) => {
+            // dockWindow.mapToScreen, not mapToGlobal: Qt has no idea where a
+            // layer surface actually sits, so mapToGlobal returns coordinates
+            // relative to the dock and the menu landed nowhere near the click.
+            const sp = dockWindow.mapToScreen(eventPoint.position.x,
+                                              eventPoint.position.y)
+            root.openDockMenu(sp.x, sp.y)
         }
     }
 
@@ -132,8 +182,16 @@ Item {
         }
     }
 
-    // ── Context menu ──────────────────────────────────────────────────────
-    ContextMenu {
-        id: barContextMenu
+    // ── Shared menu and tooltip (see openMenuCount above) ─────────────────
+    Loader {
+        id: menuLoader
+        active: false
+        sourceComponent: ContextMenu {}
+    }
+
+    Loader {
+        id: tooltipLoader
+        active: false
+        sourceComponent: Tooltip { dockPosition: root.position }
     }
 }

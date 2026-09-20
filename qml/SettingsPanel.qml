@@ -225,16 +225,74 @@ Window {
                     }
                 }
 
-                // ── Auto-hide ─────────────────────────────────────────────
+                // ── Reserve screen space ──────────────────────────────────
                 RowLayout { spacing: 12; Layout.fillWidth: true
+                    enabled: config.autohideMode === "never"
+                    opacity: enabled ? 1.0 : 0.45
                     ColumnLayout { spacing: 2
-                        Text { text: "Auto-hide dock";                    color: "white"; font.pixelSize: 13 }
-                        Text { text: "Hides when cursor leaves the dock"; color: "#888";  font.pixelSize: 11 }
+                        Text { text: "Reserve screen space"; color: "white"; font.pixelSize: 13 }
+                        Text {
+                            text: config.autohideMode !== "never"
+                                  ? "Not reserved unless the dock is always visible"
+                                  : "Keeps windows out of the dock's "
+                                    + config.dockReservedThickness + " px strip"
+                            color: "#888"; font.pixelSize: 11
+                        }
                     }
                     Item { Layout.fillWidth: true }
                     Switch {
-                        checked: config.autohide
-                        onToggled: settings.applyAutohide(checked)
+                        checked: config.reserveSpace
+                        onToggled: settings.applyReserveSpace(checked)
+                    }
+                }
+
+                // ── Dock visibility ───────────────────────────────────────
+                RowLayout { spacing: 12; Layout.fillWidth: true
+                    ColumnLayout { spacing: 2
+                        Text { text: "Dock visibility"; color: "white"; font.pixelSize: 13 }
+                        Text {
+                            text: {
+                                return config.autohideMode === "always"
+                                       ? "Hidden until the cursor reaches the edge"
+                                       : "Always on screen"
+                            }
+                            color: "#888"; font.pixelSize: 11
+                        }
+                    }
+                    Item { Layout.fillWidth: true }
+                    ComboBox {
+                        id: visibilityMode
+                        Layout.minimumWidth: 190
+                        model: ["Always visible", "Always auto-hide"]
+                        readonly property var modeKeys: ["never", "always"]
+                        currentIndex: modeKeys.indexOf(config.autohideMode) >= 0
+                                      ? modeKeys.indexOf(config.autohideMode) : 0
+                        background: Rectangle { color: "#3a3a5e"; radius: 4; border.color: "#555577"; border.width: 1 }
+                        contentItem: Text {
+                            text: parent.displayText; color: "white"; font.pixelSize: 13
+                            leftPadding: 8; verticalAlignment: Text.AlignVCenter
+                        }
+                        onActivated: settings.applyAutohideMode(modeKeys[currentIndex])
+                    }
+                }
+
+                // ── Auto-hide delay ───────────────────────────────────────
+                RowLayout { spacing: 12; Layout.fillWidth: true
+                    enabled: config.autohideMode !== "never"
+                    opacity: enabled ? 1.0 : 0.45
+                    ColumnLayout { spacing: 2
+                        Text { text: "Auto-hide delay"; color: "white"; font.pixelSize: 13 }
+                        Text { text: "Wait before hiding, 0.25 – 10 s"; color: "#888"; font.pixelSize: 11 }
+                    }
+                    Slider {
+                        id: hideDelaySlider
+                        Layout.fillWidth: true
+                        from: 250; to: 10000; value: config.autohideDelayMs; stepSize: 250
+                        onMoved: settings.applyAutohideDelay(value)
+                    }
+                    Text {
+                        text: (hideDelaySlider.value / 1000).toFixed(2) + " s"
+                        color: "white"; font.pixelSize: 13; Layout.minimumWidth: 52
                     }
                 }
 

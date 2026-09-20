@@ -17,9 +17,14 @@ class ConfigWatcher : public QObject {
 
     // ── Position & geometry ───────────────────────────────────────────────
     Q_PROPERTY(QString position READ position NOTIFY configChanged)
+    // Compositor stacking layer: background | bottom | top | overlay.
+    // "top" puts the dock in front of ordinary windows.
+    Q_PROPERTY(QString layer READ layer NOTIFY configChanged)
     Q_PROPERTY(int iconSize READ iconSize NOTIFY configChanged)
     Q_PROPERTY(int padding READ padding NOTIFY configChanged)
     Q_PROPERTY(int spacing READ spacing NOTIFY configChanged)
+    // -1 = follow KDE's primary screen (default); >=0 pins to that screen
+    // index, falling back to the primary screen if it's unplugged.
     Q_PROPERTY(int screenIndex READ screenIndex NOTIFY configChanged)
 
     // ── Dock bar background ───────────────────────────────────────────────
@@ -47,8 +52,28 @@ class ConfigWatcher : public QObject {
     Q_PROPERTY(int scrollMinSize READ scrollMinSize NOTIFY configChanged)
     Q_PROPERTY(int scrollMaxSize READ scrollMaxSize NOTIFY configChanged)
 
+    // ── Derived dock geometry ─────────────────────────────────────────────
+    // One place computes how thick the dock is, so the reserved screen space,
+    // the input region, the window size and the slide-out distance can never
+    // disagree with each other (they used to, see dockVisualThickness()).
+    Q_PROPERTY(int dockVisualThickness READ dockVisualThickness NOTIFY configChanged)
+    Q_PROPERTY(int dockReservedThickness READ dockReservedThickness NOTIFY configChanged)
+    Q_PROPERTY(int dockWindowThickness READ dockWindowThickness NOTIFY configChanged)
+
     // ── Behaviour ─────────────────────────────────────────────────────────
+    // "never"  — dock always shown, reserves its strip (the default)
+    // "always" — auto-hide: hidden until the cursor reaches the screen edge
+    Q_PROPERTY(QString autohideMode READ autohideMode NOTIFY configChanged)
+    // Legacy boolean, kept so old configs and existing bindings keep working.
+    // Equivalent to autohideMode === "always".
     Q_PROPERTY(bool autohide READ autohide NOTIFY configChanged)
+    // Whether the compositor should keep the dock's strip clear of other
+    // windows. Ignored while autohide is on — a dock that gets out of the way
+    // by itself has no business permanently carving out the screen edge.
+    Q_PROPERTY(bool reserveSpace READ reserveSpace NOTIFY configChanged)
+    // Grace period between the cursor leaving the icon bar and the dock
+    // sliding away, in milliseconds.
+    Q_PROPERTY(int autohideDelayMs READ autohideDelayMs NOTIFY configChanged)
     Q_PROPERTY(bool magnify READ magnify NOTIFY configChanged)
     Q_PROPERTY(double magnifyScale READ magnifyScale NOTIFY configChanged)
     Q_PROPERTY(int magnifyRadius READ magnifyRadius NOTIFY configChanged)
@@ -66,6 +91,7 @@ public:
 
     // ── Accessors ─────────────────────────────────────────────────────────
     QString position() const;
+    QString layer() const;
     int iconSize() const;
     int padding() const;
     int spacing() const;
@@ -92,7 +118,14 @@ public:
     int scrollMinSize() const;
     int scrollMaxSize() const;
 
+    int dockVisualThickness() const;
+    int dockReservedThickness() const;
+    int dockWindowThickness() const;
+
+    QString autohideMode() const;
     bool autohide() const;
+    bool reserveSpace() const;
+    int autohideDelayMs() const;
     bool magnify() const;
     double magnifyScale() const;
     int magnifyRadius() const;
@@ -122,6 +155,9 @@ public:
     Q_INVOKABLE void setHoverLiftPx(int px);
     Q_INVOKABLE void setBackgroundOpacity(double v);
     Q_INVOKABLE void setAutohide(bool on);
+    Q_INVOKABLE void setAutohideMode(const QString &mode);
+    Q_INVOKABLE void setAutohideDelayMs(int ms);
+    Q_INVOKABLE void setReserveSpace(bool on);
     Q_INVOKABLE void setIconBgShape(const QString &shape);
     Q_INVOKABLE void setIconBgOpacity(double v);
     Q_INVOKABLE void setBlurEnabled(bool on);

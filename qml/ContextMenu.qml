@@ -1,11 +1,19 @@
 // ContextMenu.qml — right-click popup.
-// Implemented as a Window so it appears outside the thin dock strip.
+//
+// LayerPopup, not Window: a plain QML Window declared inside the dock gets the
+// dock's layer surface as its transientParent, and KWin then stacked the menu
+// with the dock's layer instead of above it — the menu opened UNDERNEATH the
+// dock (issue #2). LayerPopup gives the menu its own layer surface on the
+// OVERLAY layer, above the dock whatever layer the dock itself is on. It falls
+// back to an ordinary window where layer-shell isn't available.
+//
 // Call openAt(screenX, screenY) after setting mode / appId.
 
 import QtQuick 2.15
 import QtQuick.Controls 2.15
+import KDock 1.0
 
-Window {
+LayerPopup {
     id: root
 
     property string mode:  "dock"
@@ -16,31 +24,141 @@ Window {
     readonly property bool   appIsPinned:    appId !== "" ? dockModel.isAppPinned(appId)       : false
     readonly property string appDisplayName: appId !== "" ? dockModel.displayNameForApp(appId) : ""
 
-    flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-    color: "transparent"
+    // flags and color are set by LayerShellPopup — which of them applies
+    // depends on whether the layer-shell path or the fallback is in use.
     width:  240
     height: menuCol.implicitHeight + 10
 
-    // Dismiss when focus moves elsewhere (click outside)
-    onActiveChanged: if (!active) visible = false
+    // Has this menu ever actually held keyboard focus? The dock is a
+    // layer-shell surface with keyboard interactivity set to NONE, so
+    // requestActivate() on a menu opened from it is not guaranteed to be
+    // granted. Dismissing on any inactive state meant that when activation
+    // never arrived the menu was torn down the moment it appeared — the
+    // "really tricky to get the option menu up" flash.
+    property bool _everActive: false
 
-    // Open above the click point, clamped to the primary screen.
-    function openAt(screenX, screenY) {
-        visible = true
-        Qt.callLater(positionSelf, screenX, screenY)
+    // Whether the cursor has ever reached the menu since it opened. Before it
+    // has, the user is still travelling towards the menu and it must not go
+    // anywhere; once they have been on it and left, they are done with it.
+    property bool _pointerVisited: false
+
+    onPopupActiveChanged: {
+        if (popupActive) {
+            _everActive = true
+            return
+        }
+        // Focus-loss dismissal only where focus is actually meaningful. On the
+        // layer-shell path focus arrives and leaves on its own as the
+        // compositor shuffles it around, and treating that as a click-outside
+        // shut the menu again before it could be read.
+        if (!usingLayerShell && _everActive && visible && !openFloor.running)
+            visible = false
     }
 
-    function positionSelf(sx, sy) {
-        const scr = Qt.application.screens[0]
-        let px = sx - 8
-        let py = sy - root.height - 8
-        if (px + root.width > scr.virtualX + scr.width)  px = scr.virtualX + scr.width - root.width - 8
-        if (px < scr.virtualX)                            px = scr.virtualX + 8
-        if (py < scr.virtualY)                            py = sy + 8
-        root.x = px
-        root.y = py
+    // NOTE: no onVisibleChanged handler here. DockBar and DockItem attach one
+    // at the instantiation site to track open menus, and a use-site handler
+    // silently replaces one written in the component — so _everActive is reset
+    // in openAt() instead, where it can't be overridden.
+
+    // Where the click happened, in screen coordinates. Position is a BINDING
+    // on this rather than something computed once at open time: the menu's
+    // height depends on which entries this mode shows, and that settles a
+    // frame or two after openAt(). Computing the position imperatively meant
+    // clamping against a stale height, which is how the taller icon menu ended
+    // up overlapping the dock even though the maths said it shouldn't.
+    property int _anchorX: 0
+    property int _anchorY: 0
+
+    readonly property rect _dockRect: dockWindow.dockScreenRect
+
+    popupX: {
+        const scr = _screenAt(_anchorX, _anchorY)
+        const gap = 8
+        let px = _anchorX - gap
+        // Keep clear of the dock when it runs down a side of the screen.
+        if (config.position === "left")
+            px = Math.max(px, _dockRect.x + _dockRect.width + gap)
+        else if (config.position === "right")
+            px = Math.min(px, _dockRect.x - root.width - gap)
+        if (px + root.width > scr.virtualX + scr.width)
+            px = scr.virtualX + scr.width - root.width - gap
+        if (px < scr.virtualX) px = scr.virtualX + gap
+        return px
+    }
+
+    popupY: {
+        const scr = _screenAt(_anchorX, _anchorY)
+        const gap = 8
+        let py = _anchorY - root.height - gap
+        // The whole menu must sit outside the dock, not merely above the click
+        // point: right-clicking an icon puts the click INSIDE the dock, so
+        // "above the click" still left the lower entries over the dock strip.
+        // For a bottom dock the menu's bottom edge lands gap px above the
+        // dock's top edge; for a top dock, gap px below its bottom edge.
+        if (config.position === "bottom")
+            py = Math.min(py, _dockRect.y - root.height - gap)
+        else if (config.position === "top")
+            py = Math.max(py, _dockRect.y + _dockRect.height + gap)
+        if (py + root.height > scr.virtualY + scr.height)
+            py = scr.virtualY + scr.height - root.height - gap
+        if (py < scr.virtualY) py = scr.virtualY + gap
+        return py
+    }
+
+    function openAt(screenX, screenY) {
+        _everActive = false
+        _pointerVisited = false
+        _anchorX = screenX
+        _anchorY = screenY
+        visible = true
+        openFloor.restart()
+        Qt.callLater(_settle)
+    }
+
+    // Raise and activate only once the window is actually mapped.
+    function _settle() {
         raise()
         requestActivate()
+    }
+
+    // The screen the click happened on — not always screens[0] on a
+    // multi-monitor desktop, where clamping to the wrong screen could park
+    // the menu off the edge of the one the user is looking at.
+    function _screenAt(sx, sy) {
+        const screens = Qt.application.screens
+        for (let i = 0; i < screens.length; ++i) {
+            const s = screens[i]
+            if (sx >= s.virtualX && sx < s.virtualX + s.width
+             && sy >= s.virtualY && sy < s.virtualY + s.height)
+                return s
+        }
+        return screens[0]
+    }
+
+    // Nothing may close this menu for the first half second, whatever else
+    // happens — no stray focus change, no hover glitch, no compositor event.
+    Timer { id: openFloor; interval: 500; repeat: false }
+
+    // After that the cursor decides, and the trigger is deliberately far out
+    // of the way: while the cursor has not yet reached the menu the user is
+    // still travelling towards it or reading it from where they are, and the
+    // menu simply stays. Only once they have been on it and moved off does a
+    // short countdown start.
+    //
+    // Choosing an entry, pressing Escape, or opening another menu
+    // (LayerShellPopup exclusivity) all close it immediately.
+    HoverHandler {
+        id: menuHover
+        onHoveredChanged: if (hovered) root._pointerVisited = true
+    }
+
+    Timer {
+        id: closeGuard
+        interval: 3500
+        running:  root.visible && root._pointerVisited
+                  && !menuHover.hovered && !openFloor.running
+        repeat:   false
+        onTriggered: root.visible = false
     }
 
     // ── Visual shell ─────────────────────────────────────────────────────────

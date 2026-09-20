@@ -193,6 +193,65 @@ private slots:
         QCOMPARE(m_config->autohide(), false);
     }
 
+    // ── applyAutohideDelay ────────────────────────────────────────────────
+
+    // Below the floor must clamp up: a near-zero delay makes an auto-hiding
+    // dock impossible to aim at, which is the bug the delay exists to avoid
+    void test_applyAutohideDelay_clampsBelow()
+    {
+        m_sc->applyAutohideDelay(0);
+        QCOMPARE(m_config->autohideDelayMs(), 250);
+    }
+
+    // Above the ceiling must clamp down so the dock can't be pinned open
+    void test_applyAutohideDelay_clampsAbove()
+    {
+        m_sc->applyAutohideDelay(60000);
+        QCOMPARE(m_config->autohideDelayMs(), 10000);
+    }
+
+    // A value inside the range passes through untouched
+    void test_applyAutohideDelay_validValue()
+    {
+        m_sc->applyAutohideDelay(3000);
+        QCOMPARE(m_config->autohideDelayMs(), 3000);
+    }
+
+    // ── applyAutohideMode ─────────────────────────────────────────────────
+
+    void test_applyAutohideMode_acceptsAlways()
+    {
+        m_sc->applyAutohideMode(QStringLiteral("always"));
+        QCOMPARE(m_config->autohideMode(), QStringLiteral("always"));
+    }
+
+    // "dodge" was retired; writing it must be refused like any other junk
+    void test_applyAutohideMode_rejectsRetiredDodge()
+    {
+        m_sc->applyAutohideMode(QStringLiteral("never"));
+        m_sc->applyAutohideMode(QStringLiteral("dodge"));
+        QCOMPARE(m_config->autohideMode(), QStringLiteral("never"));
+    }
+
+    // A junk mode must be rejected outright rather than written to the file
+    void test_applyAutohideMode_rejectsInvalid()
+    {
+        m_sc->applyAutohideMode(QStringLiteral("always"));
+        m_sc->applyAutohideMode(QStringLiteral("nonsense"));
+        QCOMPARE(m_config->autohideMode(), QStringLiteral("always"));
+    }
+
+    void test_applyAutohideMode_allValidModes()
+    {
+        const QStringList modes{
+            QStringLiteral("never"), QStringLiteral("always"),
+        };
+        for (const QString &m : modes) {
+            m_sc->applyAutohideMode(m);
+            QCOMPARE(m_config->autohideMode(), m);
+        }
+    }
+
     // ── requestOpenSettings ───────────────────────────────────────────────
 
     // Calling requestOpenSettings() must emit the openSettingsRequested signal

@@ -81,6 +81,20 @@ QString ConfigWatcher::position() const
     return m_config.value(QStringLiteral("position")).toString(QStringLiteral("bottom"));
 }
 
+// Which compositor layer the dock's surface goes on. Defaults to "top": a
+// dock stacked below ordinary windows disappears behind any maximised one,
+// which makes both auto-hide and dodge useless.
+QString ConfigWatcher::layer() const
+{
+    const QString v = m_config.value(QStringLiteral("layer"))
+                          .toString(QStringLiteral("top"));
+    static const QStringList valid{
+        QStringLiteral("background"), QStringLiteral("bottom"),
+        QStringLiteral("top"),        QStringLiteral("overlay"),
+    };
+    return valid.contains(v) ? v : QStringLiteral("top");
+}
+
 int ConfigWatcher::iconSize() const
 {
     return m_config.value(QStringLiteral("iconSize")).toInt(52);
@@ -98,7 +112,11 @@ int ConfigWatcher::spacing() const
 
 int ConfigWatcher::screenIndex() const
 {
-    return m_config.value(QStringLiteral("screenIndex")).toInt(0);
+    // -1 (default) means "follow KDE's primary screen" — the dock always
+    // tracks Plasma's configured primary/priority display, including across
+    // hotplug. A non-negative value pins the dock to that specific screen
+    // index, with automatic fallback to the primary screen if it disappears.
+    return m_config.value(QStringLiteral("screenIndex")).toInt(-1);
 }
 
 // ── Dock bar background ────────────────────────────────────────────────────
@@ -211,11 +229,87 @@ int ConfigWatcher::scrollMaxSize() const
         .value(QStringLiteral("maxSize")).toInt(128);
 }
 
+// ── Derived dock geometry ──────────────────────────────────────────────────
+//
+// The dock draws two things stacked on the anchored edge: a background strip
+// (iconSize + padding on both sides) and, inside it, a row of items that each
+// carry their own icon-background padding. The row is laid out with `padding`
+// of margin against the edge, so its outer extent is
+//
+//     padding + iconSize + iconBgPadding * 2 + 4
+//
+// which for the default 52/8/6 sizes is 76 px against a 68 px strip — the row
+// is TALLER than the strip it sits in. Reserving only the strip therefore left
+// the top of every icon (and all of the hover lift) hanging over whatever
+// window was behind the dock.
+
+// Item height in DockItem.qml: the icon, its background padding, and 2 px of
+// breathing room on each side.
+static int itemExtent(int iconSize, int iconBgPadding)
+{
+    return iconSize + iconBgPadding * 2 + 4;
+}
+
+// Everything the dock paints at rest.
+int ConfigWatcher::dockVisualThickness() const
+{
+    const int strip = iconSize() + padding() * 2;
+    const int row   = padding() + itemExtent(iconSize(), iconBgPadding());
+    return qMax(strip, row);
+}
+
+// What the compositor is asked to keep clear: the painted dock plus the hover
+// lift, so an icon raised under the cursor still sits inside our own space
+// rather than on top of the window behind.
+int ConfigWatcher::dockReservedThickness() const
+{
+    return dockVisualThickness() + hoverLiftPx();
+}
+
+// The window itself is taller again, purely so the click-bounce animation
+// (which overshoots to -22 px) isn't clipped. Nothing is painted up there at
+// rest and it is deliberately NOT reserved or made interactive.
+int ConfigWatcher::dockWindowThickness() const
+{
+    return dockReservedThickness() + 26;
+}
+
 // ── Behaviour ──────────────────────────────────────────────────────────────
+
+// Falls back to the legacy boolean so a config written before dodge existed
+// keeps behaving exactly as it did.
+QString ConfigWatcher::autohideMode() const
+{
+    const QString v = m_config.value(QStringLiteral("autohideMode")).toString();
+    // "dodge" was a third mode that hid the dock only while a window covered
+    // it. It never became reliable enough to keep, so a config still asking
+    // for it falls back to the safe option: a dock that stays put.
+    static const QStringList valid{
+        QStringLiteral("never"), QStringLiteral("always"),
+    };
+    if (valid.contains(v))
+        return v;
+    return m_config.value(QStringLiteral("autohide")).toBool(false)
+         ? QStringLiteral("always")
+         : QStringLiteral("never");
+}
 
 bool ConfigWatcher::autohide() const
 {
-    return m_config.value(QStringLiteral("autohide")).toBool(false);
+    return autohideMode() == QStringLiteral("always");
+}
+
+bool ConfigWatcher::reserveSpace() const
+{
+    return m_config.value(QStringLiteral("reserveSpace")).toBool(true);
+}
+
+// How long the dock waits, after the cursor has left the icon bar, before it
+// slides away. Deliberately generous: a dock that vanishes the instant the
+// cursor clips its edge is impossible to aim at.
+int ConfigWatcher::autohideDelayMs() const
+{
+    return m_config.value(QStringLiteral("autohideDelayMs")).toInt(2500);
 }
 
 bool ConfigWatcher::magnify() const
@@ -304,7 +398,29 @@ void ConfigWatcher::setBackgroundOpacity(double v)
 
 void ConfigWatcher::setAutohide(bool on)
 {
-    m_config[QStringLiteral("autohide")] = on;
+    setAutohideMode(on ? QStringLiteral("always") : QStringLiteral("never"));
+}
+
+void ConfigWatcher::setAutohideMode(const QString &mode)
+{
+    m_config[QStringLiteral("autohideMode")] = mode;
+    // Keep the legacy key in step so downgrading, or any other reader of the
+    // file, still sees the right thing.
+    m_config[QStringLiteral("autohide")] = (mode == QStringLiteral("always"));
+    emit configChanged();
+    save();
+}
+
+void ConfigWatcher::setAutohideDelayMs(int ms)
+{
+    m_config[QStringLiteral("autohideDelayMs")] = ms;
+    emit configChanged();
+    save();
+}
+
+void ConfigWatcher::setReserveSpace(bool on)
+{
+    m_config[QStringLiteral("reserveSpace")] = on;
     emit configChanged();
     save();
 }
@@ -362,10 +478,11 @@ void ConfigWatcher::resetToDefaults()
             QStringLiteral("org.kde.kate"),
         }},
         {QStringLiteral("position"), QStringLiteral("bottom")},
+        {QStringLiteral("layer"), QStringLiteral("top")},
         {QStringLiteral("iconSize"), 52},
         {QStringLiteral("padding"), 8},
         {QStringLiteral("spacing"), 6},
-        {QStringLiteral("screenIndex"), 0},
+        {QStringLiteral("screenIndex"), -1},
         {QStringLiteral("background"), QJsonObject{
             {QStringLiteral("color"),   QStringLiteral("#1a1a2e")},
             {QStringLiteral("opacity"), 0.85},
@@ -391,10 +508,13 @@ void ConfigWatcher::resetToDefaults()
             {QStringLiteral("minSize"), 24},
             {QStringLiteral("maxSize"), 128},
         }},
-        {QStringLiteral("autohide"),      false},
-        {QStringLiteral("magnify"),       true},
-        {QStringLiteral("magnifyScale"),  1.5},
-        {QStringLiteral("magnifyRadius"), 120},
+        {QStringLiteral("autohide"),        false},
+        {QStringLiteral("autohideMode"),    QStringLiteral("never")},
+        {QStringLiteral("autohideDelayMs"), 2500},
+        {QStringLiteral("reserveSpace"),    true},
+        {QStringLiteral("magnify"),         true},
+        {QStringLiteral("magnifyScale"),    1.5},
+        {QStringLiteral("magnifyRadius"),   120},
         {QStringLiteral("runningIndicator"), QJsonObject{
             {QStringLiteral("visible"), true},
             {QStringLiteral("color"),   QStringLiteral("#4fc3f7")},

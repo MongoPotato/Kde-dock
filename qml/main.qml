@@ -8,6 +8,7 @@
 //   taskTracker         → TaskTracker*
 //   iconThemeDetector   → IconThemeDetector*
 //   appLibrary          → AppLibrary*
+//   dockWindow          → LayerShellWindow*
 
 import QtQuick 2.15
 import QtQuick.Controls 2.15
@@ -15,32 +16,152 @@ import QtQuick.Controls 2.15
 Item {
     id: root
 
-    // ── Auto-hide state ──────────────────────────────────────────────────
-    property bool _dockHovered:   false
-    property bool _dockAnimating: false
-    property bool dockVisible:    !config.autohide || _dockHovered
+    // ── Auto-hide ─────────────────────────────────────────────────────────
+    //
+    // The dock window is deliberately TALLER than the visible icon strip so
+    // that hover-lifted icons and click bounces aren't clipped. Auto-hide
+    // therefore can't just ask "is the cursor over the window?" — it has to
+    // ask "is the cursor over the ICON BAR?", and it must only hide once the
+    // cursor has genuinely left that band and stayed out for the full delay.
+    //
+    // Everything below is written so that no single stray hover event can
+    // hide the dock: the decision is re-derived from pointer position via
+    // evaluateAutohide(), and re-checked once more when the timer fires.
 
-    onDockVisibleChanged: {
-        console.log("[kdock autohide] dockVisible →", dockVisible,
-                    "  autohide:", config.autohide, "  _dockHovered:", _dockHovered)
-        if (dockVisible) {
-            // Lock out hover-on-icon animations while the dock slides in
-            root._dockAnimating = true
-            animDoneTimer.restart()
-        } else {
-            hideTimer.stop()
+    property bool pointerInWindow: false
+    property bool pointerInZone:   false
+    readonly property bool pointerOnDock: pointerInWindow && pointerInZone
+
+    // A menu or panel opened from the dock keeps it up: the cursor is over
+    // that window, not the dock, but the user is plainly still using it.
+    readonly property bool menuOpen: dockBar.openMenuCount > 0
+                                  || (settingsLoader.item && settingsLoader.item.visible)
+                                  || (appPickerLoader.item && appPickerLoader.item.visible)
+
+    // Latched "the dock should be up". Only evaluateAutohide() and the hide
+    // timer touch it, so the reveal/hide decision lives in exactly one place.
+    property bool dockHeld:       false
+    property bool _dockAnimating: false
+    // Keeps the icon strip rendered until the slide-out has actually finished.
+    property bool contentRendered: true
+
+    // Whether hiding behaviour applies right now. Two modes only: the dock
+    // either stays put or auto-hides.
+    readonly property bool autohideActive: config.autohideMode === "always"
+
+    readonly property bool dockVisible: !autohideActive || dockHeld
+
+    // ── Icon-bar hover zone ───────────────────────────────────────────────
+    readonly property int stripThickness: config.dockVisualThickness
+    // Slack above the strip covers the hover lift and the click-bounce
+    // overshoot: an icon that pops up under the cursor must not read as the
+    // cursor having left the bar.
+    readonly property int zoneSlack: config.hoverLiftPx + 24
+
+    // pos is in root-item coordinates, which match window coordinates.
+    function pointerInDockZone(pos) {
+        switch (config.position) {
+        case "top":   return pos.y <= stripThickness + zoneSlack
+        case "left":  return pos.x <= stripThickness + zoneSlack
+        case "right": return pos.x >= width  - stripThickness - zoneSlack
+        default:      return pos.y >= height - stripThickness - zoneSlack
         }
     }
 
-    // 1-second delay before hiding so a brief cursor-leave doesn't flicker
+    // Single source of truth for the auto-hide decision. Called on every
+    // pointer, menu and config change — never assumes an event was reliable.
+    function evaluateAutohide() {
+        if (!autohideActive) {
+            hideTimer.stop()
+            return
+        }
+        if (pointerOnDock || menuOpen) {
+            hideTimer.stop()
+            root.dockHeld = true
+            return
+        }
+        // Freshly revealed: let the reveal settle before any hide countdown
+        // starts, so a hover event delivered while the dock is still sliding
+        // in can't bounce it straight back out. revealDwell re-evaluates.
+        if (revealDwell.running)
+            return
+        if (!hideTimer.running)
+            hideTimer.start()
+    }
+
+    onPointerOnDockChanged:  evaluateAutohide()
+    onMenuOpenChanged:       evaluateAutohide()
+    onAutohideActiveChanged: {
+        if (!autohideActive) root.dockHeld = false
+        evaluateAutohide()
+    }
+
+    Connections {
+        target: config
+        function onConfigChanged() { root.evaluateAutohide() }
+    }
+
+    Component.onCompleted: {
+        // Match the real Wayland surface to the initial visibility so a
+        // dock that starts auto-hidden doesn't block the screen edge.
+        if (typeof dockWindow !== "undefined") {
+            dockWindow.setRevealed(root.dockVisible)
+            // Everything that places a menu or tooltip is measured from this
+            // rectangle, so it's worth being able to see it in --debug.
+            console.log("[kdock] dock screen rect:", dockWindow.dockScreenRect)
+        }
+    }
+
+    onDockVisibleChanged: {
+        console.log("[kdock autohide] dockVisible →", dockVisible,
+                    "  mode:", config.autohideMode,
+                    "  active:", autohideActive,
+                    "  dockHeld:", dockHeld)
+        if (dockVisible) {
+            // Lock out hover-on-icon animations while the dock slides in
+            root._dockAnimating   = true
+            root.contentRendered  = true
+            animDoneTimer.restart()
+            revealDwell.restart()
+            maskHideTimer.stop()
+            // Widen the input region back to the dock band immediately so the
+            // icons are clickable as soon as they're on screen.
+            if (typeof dockWindow !== "undefined") dockWindow.setRevealed(true)
+        } else {
+            hideTimer.stop()
+            // Wait for the slide-out to finish before narrowing the input
+            // region back to the reveal strip — doing it early would make the
+            // still-visible icons unclickable.
+            maskHideTimer.restart()
+        }
+    }
+
+    // Delay between the cursor leaving the icon bar and the dock sliding away.
+    // Long by design (2.5 s default): a dock that vanishes the instant the
+    // cursor clips its edge is impossible to aim at.
     Timer {
         id: hideTimer
-        interval: 1000
+        interval: Math.max(250, config.autohideDelayMs)
         repeat:   false
         onTriggered: {
-            console.log("[kdock autohide] hide timer fired → hiding dock")
-            root._dockHovered = false
+            // Re-check: the cursor may have come back, or a menu may have
+            // opened, at any point while the countdown was running.
+            if (root.pointerOnDock || root.menuOpen || !root.autohideActive) {
+                root.evaluateAutohide()
+                return
+            }
+            console.log("[kdock autohide] hide delay elapsed → hiding dock")
+            root.dockHeld = false
         }
+    }
+
+    // Minimum time the dock stays up after revealing, before a hide countdown
+    // may start. Covers the 220 ms slide-in plus settle.
+    Timer {
+        id: revealDwell
+        interval: 700
+        repeat:   false
+        onTriggered: root.evaluateAutohide()
     }
 
     // Unlock icon hover-state after the slide-in animation completes (~220 ms)
@@ -54,20 +175,43 @@ Item {
         }
     }
 
-    // ── Hover detection for auto-hide ─────────────────────────────────────
-    // Full-window area so the cursor touches the screen edge to reveal.
-    MouseArea {
-        anchors.fill: parent
-        hoverEnabled: true
-        propagateComposedEvents: true
-        onEntered: {
-            console.log("[kdock autohide] window ENTERED")
-            hideTimer.stop()
-            root._dockHovered = true
+    // Narrow the input region back to the reveal strip, and stop rendering
+    // the strip, once the 220 ms slide-out transform has finished.
+    Timer {
+        id: maskHideTimer
+        interval: 240
+        repeat:   false
+        onTriggered: {
+            if (typeof dockWindow !== "undefined") dockWindow.setRevealed(false)
+            root.contentRendered = false
         }
-        onExited: {
-            console.log("[kdock autohide] window EXITED")
-            if (config.autohide) hideTimer.restart()
+    }
+
+    // ── Hover detection for auto-hide ─────────────────────────────────────
+    // HoverHandler (not MouseArea) so it doesn't compete for exclusive hover
+    // ownership with the per-icon MouseAreas in DockItem — a plain MouseArea
+    // here would get spurious Exited/Entered toggles every time the cursor
+    // crossed onto/off of an icon, making the auto-hide dock flicker.
+    HoverHandler {
+        id: autohideHover
+
+        onHoveredChanged: {
+            root.pointerInWindow = hovered
+            if (hovered) {
+                // point.position is already up to date on the enter event.
+                root.pointerInZone = root.pointerInDockZone(point.position)
+                console.log("[kdock autohide] window ENTERED at", point.position,
+                            " inZone:", root.pointerInZone)
+            } else {
+                console.log("[kdock autohide] window EXITED")
+            }
+        }
+
+        // Tracks the cursor across the window so leaving the icon bar for the
+        // transparent overflow above it is noticed even without an exit event.
+        onPointChanged: {
+            if (hovered)
+                root.pointerInZone = root.pointerInDockZone(point.position)
         }
     }
 
@@ -75,6 +219,7 @@ Item {
     DockBar {
         id: dockBar
         anchors.fill: parent
+        visible:       root.contentRendered
         position:      config.position
         dockVisible:   root.dockVisible
         dockAnimating: root._dockAnimating
@@ -82,7 +227,7 @@ Item {
         transform: Translate {
             // Slide by the VISUAL dock thickness (icon strip height).
             // Window is taller than the strip to accommodate hover-lift overflow.
-            readonly property int baseThickness: config.iconSize + config.padding * 2
+            readonly property int baseThickness: root.stripThickness
             x: (config.position === "left" || config.position === "right")
                ? (root.dockVisible ? 0
                                    : (config.position === "left" ? -baseThickness : baseThickness))
@@ -98,20 +243,33 @@ Item {
     }
 
     // ── App management window (separate OS window) ────────────────────────
-    AppPickerPanel {
-        id: appPickerPanel
-        visible: false
+    // Both panels are built on first use, not at startup. They are whole
+    // windows full of controls — and the app picker pulls in every .desktop
+    // file on the system — for something most sessions never open.
+    Loader {
+        id: appPickerLoader
+        active: false
+        sourceComponent: AppPickerPanel { visible: false }
     }
 
     // ── Visual settings panel ─────────────────────────────────────────────
-    SettingsPanel {
-        id: settingsPanel
+    Loader {
+        id: settingsLoader
+        active: false
+        sourceComponent: SettingsPanel {}
     }
 
     // ── Signal routing ────────────────────────────────────────────────────
     Connections {
         target: settings
-        function onOpenSettingsRequested()  { settingsPanel.open() }
-        function onManageAppsRequested()    { appPickerPanel.visible = true; appPickerPanel.raise() }
+        function onOpenSettingsRequested() {
+            settingsLoader.active = true
+            settingsLoader.item.open()
+        }
+        function onManageAppsRequested() {
+            appPickerLoader.active = true
+            appPickerLoader.item.visible = true
+            appPickerLoader.item.raise()
+        }
     }
 }

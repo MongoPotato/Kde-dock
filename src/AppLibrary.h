@@ -47,7 +47,13 @@ private:
     void scan();
     void applyFilter();
 
-    QVector<AppEntry>         m_all;
-    QVector<const AppEntry *> m_filtered;
+    // Parsing every .desktop file on the system costs real memory and is only
+    // ever needed by the app-picker window, which most sessions never open.
+    // Deferred until something actually reads the model.
+    void ensureScanned() const;
+
+    mutable bool              m_scanned = false;
+    mutable QVector<AppEntry>         m_all;
+    mutable QVector<const AppEntry *> m_filtered;
     QString                   m_filter;
 };
