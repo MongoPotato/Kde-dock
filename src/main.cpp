@@ -16,8 +16,11 @@
 #include "DockModel.h"
 #include "IconProvider.h"
 #include "IconThemeDetector.h"
+#include "LayerShellGlobal.h"
+#include "LayerShellPopup.h"
 #include "LayerShellWindow.h"
 #include "SettingsController.h"
+#include "SingleInstance.h"
 #include "TaskTracker.h"
 
 #include <QCommandLineOption>
@@ -47,9 +50,37 @@ int main(int argc, char *argv[])
     parser.addVersionOption();
     parser.addOption(QCommandLineOption(
         QStringLiteral("debug"),
-        QStringLiteral("Enable verbose QML and Qt logging; print startup diagnostics.")));
+        QStringLiteral("Enable verbose QML and Qt logging; print startup diagnostics. "
+                       "Implies --replace, so it takes over from the installed dock "
+                       "instead of running alongside it.")));
+    parser.addOption(QCommandLineOption(
+        QStringLiteral("replace"),
+        QStringLiteral("Stop any running kdock (including the systemd service) and "
+                       "take its place.")));
+    parser.addOption(QCommandLineOption(
+        QStringLiteral("qml-path"),
+        QStringLiteral("Load QML from this directory instead of the usual search "
+                       "order. Use it to run a development build against the "
+                       "installed QML, or the reverse."),
+        QStringLiteral("dir")));
     parser.process(app);
     const bool debugMode = parser.isSet(QStringLiteral("debug"));
+    // Debugging a dock while the installed one is still on screen is useless,
+    // so --debug always replaces.
+    const bool replaceMode = debugMode || parser.isSet(QStringLiteral("replace"));
+
+    // Must happen before anything touches KWin or the config: two instances
+    // would otherwise fight over the same KWin script name and DBus objects.
+    QString instanceError;
+    SingleInstance *instance = SingleInstance::acquire(replaceMode, &instanceError);
+    if (!instance) {
+        qWarning("kdock: %s", qPrintable(instanceError));
+        return 1;
+    }
+    if (instance->stoppedSystemdUnit()) {
+        qInfo("kdock: stopped the installed kdock.service to take over. "
+              "Restore it later with:  systemctl --user start kdock");
+    }
 
     if (debugMode) {
         QLoggingCategory::setFilterRules(
@@ -60,6 +91,13 @@ int main(int argc, char *argv[])
                            "qt.quick.loader=true\n"
                            "qt.wayland=true"));
         qDebug("kdock [debug]: Qt %s | QML debug enabled", qVersion());
+        qDebug("kdock [debug]: platform    : %s", qPrintable(app.platformName()));
+        qDebug("kdock [debug]: env         : WAYLAND_DISPLAY='%s' DISPLAY='%s' QT_QPA_PLATFORM='%s'",
+               qgetenv("WAYLAND_DISPLAY").constData(),
+               qgetenv("DISPLAY").constData(),
+               qgetenv("QT_QPA_PLATFORM").constData());
+        qDebug("kdock [debug]: layer shell : %s",
+               qPrintable(LayerShellGlobal::diagnostics()));
     }
 
     // Detect KDE icon theme first so all subsequent QIcon::fromTheme() calls
@@ -76,8 +114,13 @@ int main(int argc, char *argv[])
 
     SettingsController settingsController(&config, &iconThemeDetector);
 
+    // ContextMenu.qml instantiates this as `LayerPopup`. It has to be
+    // registered before any QML is loaded.
+    qmlRegisterType<LayerShellPopup>("KDock", 1, 0, "LayerPopup");
+
     LayerShellWindow window;
     window.setAnchor(config.position());
+    window.setLayer(config.layer());
 
     // Resolve which physical screen the dock belongs on: a non-negative
     // screenIndex pins it to that screen (falling back to the primary screen
@@ -94,23 +137,25 @@ int main(int argc, char *argv[])
     if (QScreen *initialScreen = resolvePreferredScreen())
         window.setScreen(initialScreen);
 
-    // baseThickness = visual strip height (reserved screen space / exclusive zone).
-    // winThickness  = full window height: strip + hoverLiftPx so lifted icons
-    //                 don't clip at the window edge.
-    auto computeThicknesses = [&](int &base, int &win) {
-        base = config.iconSize() + config.padding() * 2;
-        // Extra space for hover lift (8px default) + click bounce peak (-22px) + margin
-        win  = base + config.hoverLiftPx() + 32;
-    };
+    // All three numbers come from ConfigWatcher so nothing here can drift out
+    // of step with what QML actually paints:
+    //   dockReservedThickness — screen space the compositor keeps clear, and
+    //                           the part of the window that takes input
+    //   dockWindowThickness   — full window height, click-bounce headroom
+    //                           included; that headroom paints nothing and is
+    //                           neither reserved nor interactive
+    // Auto-hide reserves nothing: a dock that gets out of the way by itself
+    // has no business permanently carving out the screen edge.
+    auto applyDockGeometry = [&]() {
+        // An auto-hiding dock reserves nothing: it gets out of the way by
+        // itself, so permanently carving out the screen edge would be wrong.
+        const bool reserving = config.reserveSpace() && !config.autohide();
+        window.setExclusiveZone(reserving ? config.dockReservedThickness() : 0);
+        window.setInteractiveThickness(config.dockReservedThickness());
+        window.setThickness(config.dockWindowThickness());
 
-    {
-        int base, win;
-        computeThicknesses(base, win);
-        // Auto-hide reserves no screen space — the dock floats over whatever
-        // is underneath instead of permanently carving out the edge.
-        window.setExclusiveZone(config.autohide() ? 0 : base);
-        window.setThickness(win);
-    }
+    };
+    applyDockGeometry();
 
     // Set an initial window size so the QML root item has geometry before
     // the layer-shell configure callback fires.
@@ -127,10 +172,7 @@ int main(int argc, char *argv[])
     QObject::connect(&config, &ConfigWatcher::configChanged, &window,
                      [&]() {
                          window.setBlurEnabled(config.blurEnabled());
-                         int base, win;
-                         computeThicknesses(base, win);
-                         window.setExclusiveZone(config.autohide() ? 0 : base);
-                         window.setThickness(win);
+                         applyDockGeometry();
                          window.applyGeometryUpdate();
                      });
 
@@ -138,8 +180,11 @@ int main(int argc, char *argv[])
     // or a screen is plugged/unplugged — covers both "moved the primary
     // screen in Display settings" and "unplugged the screen the dock was on".
     auto reanchorScreen = [&]() {
-        if (QScreen *target = resolvePreferredScreen())
+        if (QScreen *target = resolvePreferredScreen()) {
             window.reanchorToScreen(target);
+            // The dodge rectangle is screen-relative, so it moves with the dock.
+            applyDockGeometry();
+        }
     };
     QObject::connect(qApp, &QGuiApplication::primaryScreenChanged, &window, reanchorScreen);
     QObject::connect(qApp, &QGuiApplication::screenAdded,   &window, reanchorScreen);
@@ -167,12 +212,15 @@ int main(int argc, char *argv[])
 
     // Resolve QML — search in order: installed path, next to exe, CWD
     const QString exeDir = QCoreApplication::applicationDirPath();
-    const QStringList qmlCandidates = {
+    const QString qmlOverride = parser.value(QStringLiteral("qml-path"));
+    const QStringList qmlCandidates = qmlOverride.isEmpty()
+      ? QStringList{
         QStringLiteral(QML_INSTALL_DIR) + QStringLiteral("/main.qml"),
         exeDir + QStringLiteral("/../qml/main.qml"),
         exeDir + QStringLiteral("/qml/main.qml"),
         QDir::currentPath() + QStringLiteral("/qml/main.qml"),
-    };
+      }
+      : QStringList{ qmlOverride + QStringLiteral("/main.qml") };
 
     QString qmlPath;
     for (const QString &c : qmlCandidates) {
@@ -192,7 +240,18 @@ int main(int argc, char *argv[])
         qDebug("kdock [debug]: pinned apps : [%s]",
                qPrintable(config.pinnedApps().join(QStringLiteral(", "))));
         qDebug("kdock [debug]: position    : %s", qPrintable(config.position()));
+        qDebug("kdock [debug]: layer       : %s", qPrintable(config.layer()));
+        qDebug("kdock [debug]: autohide    : %s", qPrintable(config.autohideMode()));
         qDebug("kdock [debug]: icon size   : %d px", config.iconSize());
+        qDebug("kdock [debug]: dock painted: %d px", config.dockVisualThickness());
+        qDebug("kdock [debug]: reserved    : %d px%s",
+               window.exclusiveZone(),
+               window.exclusiveZone() != 0 ? ""
+                 : config.autohideMode() != QStringLiteral("never")
+                     ? "  (nothing reserved: the dock hides, so windows may use the strip)"
+                     : "  (reserveSpace off)");
+        qDebug("kdock [debug]: interactive : %d px of a %d px window",
+               window.interactiveThickness(), window.thickness());
         qDebug("kdock [debug]: model rows  : %d", dockModel.rowCount());
         qDebug("kdock [debug]: QML path    : %s", qPrintable(qmlPath));
     }

@@ -20,6 +20,7 @@
 
 import QtQuick 2.15
 import QtQuick.Controls 2.15
+import QtQuick.Window 2.15
 
 Item {
     id: root
@@ -43,8 +44,10 @@ Item {
         target: dockBar
         function onDockVisibleChanged() {
             if (!dockBar.dockVisible) {
-                root.state = "normal"
-                tooltip.hide()
+                // The hover state itself is a binding (see `state` below) and
+                // drops out on its own; only the one-shot click animations
+                // need unwinding so a hidden icon doesn't come back mid-bounce.
+                dockBar.hideTooltip(root)
                 clickBounceAnim.stop()
                 cycleBounceAnim.stop()
                 minimizeBounceAnim.stop()
@@ -89,7 +92,18 @@ Item {
         }
     ]
 
-    state: "normal"
+    // Derived, not assigned: an imperative `state = ...` in a hover handler
+    // latches, so a hover event lost to a window resize or a sibling window
+    // would leave the icon stuck lifted (or stuck flat) until the cursor
+    // moved again. As a binding the lift always tracks the real hover state,
+    // and re-evaluates by itself when the slide-in animation finishes.
+    state: (mouse.containsMouse && !root.dockAnimating && dockBar.dockVisible)
+           ? "hovered" : "normal"
+
+    onStateChanged: {
+        if (state === "hovered") dockBar.showTooltip(root, root.displayName)
+        else                     dockBar.hideTooltip(root)
+    }
 
     // ── Glow ring behind icon ────────────────────────────────────────────
     Rectangle {
@@ -180,9 +194,15 @@ Item {
             width:  config.iconSize * (root.state === "hovered" ? config.hoverScaleBoost : 1.0)
             height: width
             source: "image://kdock/" + root.iconName + "?v=" + root.iconVersion
-            // Request at high resolution so the icon stays crisp on HiDPI screens.
-            sourceSize.width:  256
-            sourceSize.height: 256
+            // Decode at the size actually drawn, scaled for the screen and for
+            // the hover zoom, instead of a flat 256x256. A 256x256 ARGB icon is
+            // ~256 kB held in the pixmap cache for something usually painted at
+            // 52 px; this is the same crispness for a fraction of the memory.
+            readonly property int decodeSize:
+                Math.ceil(config.iconSize * config.hoverScaleBoost
+                          * Math.max(1, Screen.devicePixelRatio))
+            sourceSize.width:  decodeSize
+            sourceSize.height: decodeSize
             fillMode: Image.PreserveAspectFit
             smooth: true
             asynchronous: true
@@ -264,37 +284,17 @@ Item {
                 dockModel.launchApp(root.appId)
                 clickBounceAnim.restart()
             } else {
-                const sp = mouse.mapToGlobal(event.x, event.y)
-                contextMenu.mode  = "app"
-                contextMenu.appId = root.appId
-                contextMenu.openAt(sp.x, sp.y)
+                // See DockBar: a layer surface has no usable global mapping.
+                const p = mouse.mapToItem(null, event.x, event.y)
+                const sp = dockWindow.mapToScreen(p.x, p.y)
+                dockBar.openAppMenu(root.appId, sp.x, sp.y)
             }
         }
 
-        onEntered: {
-            // Don't enter hover state while the dock is sliding in — the
-            // icon is still in motion and the animation looks jerky.
-            if (!root.dockAnimating) {
-                root.state = "hovered"
-                tooltip.show()
-            }
-        }
-        onExited: {
-            root.state = "normal"
-            tooltip.hide()
-        }
+        // No onEntered/onExited: containsMouse drives root.state directly.
+        // Hover during the slide-in is suppressed by the dockAnimating term
+        // in that binding, which then re-evaluates once the slide completes.
     }
 
-    // ── Tooltip ──────────────────────────────────────────────────────────
-    Tooltip {
-        id: tooltip
-        text: root.displayName
-        dockPosition: root.position
-        parentItem: root
-    }
 
-    // ── Context menu (shared ContextMenu component) ──────────────────────
-    ContextMenu {
-        id: contextMenu
-    }
 }

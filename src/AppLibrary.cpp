@@ -10,7 +10,14 @@
 AppLibrary::AppLibrary(QObject *parent)
     : QAbstractListModel(parent)
 {
-    scan();
+    // No scan here on purpose — see ensureScanned().
+}
+
+void AppLibrary::ensureScanned() const
+{
+    if (m_scanned) return;
+    m_scanned = true;
+    const_cast<AppLibrary *>(this)->scan();
 }
 
 void AppLibrary::scan()
@@ -78,11 +85,13 @@ void AppLibrary::applyFilter()
 int AppLibrary::rowCount(const QModelIndex &parent) const
 {
     if (parent.isValid()) return 0;
+    ensureScanned();
     return m_filtered.size();
 }
 
 QVariant AppLibrary::data(const QModelIndex &index, int role) const
 {
+    ensureScanned();
     if (!index.isValid() || index.row() >= m_filtered.size()) return {};
     const AppEntry &e = *m_filtered.at(index.row());
     switch (role) {
@@ -113,6 +122,7 @@ void AppLibrary::setFilter(const QString &f)
     if (m_filter == f) return;
     m_filter = f;
     emit filterChanged();
+    ensureScanned();
     beginResetModel();
     applyFilter();
     endResetModel();
@@ -120,6 +130,7 @@ void AppLibrary::setFilter(const QString &f)
 
 void AppLibrary::refresh()
 {
+    m_scanned = true;   // an explicit refresh counts as having scanned
     beginResetModel();
     scan();
     endResetModel();

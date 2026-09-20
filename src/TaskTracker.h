@@ -21,6 +21,7 @@
 
 #include <QMap>
 #include <QObject>
+#include <QHash>
 #include <QSet>
 #include <QStringList>
 #include <QTimer>
@@ -74,6 +75,7 @@ public:
 
     Q_PROPERTY(QString activeAppId READ activeAppId NOTIFY activeAppChanged)
 
+
 signals:
     void runningAppsChanged(const QStringList &appIds);
     void windowUrgent(const QString &appId);
@@ -100,6 +102,7 @@ private:
     KWinBridge     *m_bridge    = nullptr;
     QTimer          m_pollTimer;
     bool            m_scriptLoaded  = false;
+    bool            m_bridgeRegistered = false;
     int             m_actionCounter = 0;
 
     QMap<QString, QString> m_windowAppIds;   // uuid  → appId

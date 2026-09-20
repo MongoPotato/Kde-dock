@@ -153,17 +153,29 @@ apply immediately, no restart needed.
 
 Open the in-app settings panel via right-click → **Dock settings…** to
 adjust icon size, hover lift/magnify, dock position and opacity, icon
-background shape, blur-behind, adaptive colour tint, and auto-hide — or
-edit `dock.json` directly:
+background shape, blur-behind, adaptive colour tint, and auto-hide (plus
+its hide delay) — or edit `dock.json` directly:
 
 ```jsonc
 {
   "pinned": ["org.kde.dolphin", "org.kde.konsole"],
   "position": "bottom",        // bottom | top | left | right
+  "layer": "top",              // compositor stacking layer:
+                               // background | bottom | top | overlay.
+                               // "top" keeps the dock in front of windows.
   "iconSize": 52,
   "padding": 8,
   "spacing": 6,
-  "autohide": false,
+  "autohide": false,           // legacy; same as autohideMode "always"
+  "autohideMode": "never",     // never | always
+                               //   never  — dock always on screen
+                               //   always — auto-hide: hidden until the cursor
+                               //            reaches the screen edge
+  "autohideDelayMs": 2500,     // how long after the cursor leaves the icon
+                               // bar before the dock slides away (250–10000)
+  "reserveSpace": true,        // keep other windows out of the dock's strip.
+                               // Ignored while autohide is on — an auto-hiding
+                               // dock never reserves space.
   "magnify": true,
   "magnifyScale": 1.5,
   "background": { "color": "#1a1a2e", "opacity": 0.85, "radius": 14 }
@@ -181,8 +193,27 @@ kdock --debug
 ```
 
 Enables verbose QML/Qt/Wayland logging plus startup diagnostics (pinned
-apps, dock position, icon size, QML resolution path) — useful when filing
-an issue or diagnosing window-tracking problems.
+apps, dock position and layer, dock thickness/reserved/interactive sizes,
+auto-hide mode, icon size, QML resolution path) — useful when filing an
+issue or diagnosing window-tracking problems.
+
+**`--debug` takes over from the installed dock.** It stops `kdock.service`
+and asks the running instance to exit before starting, so you get one dock
+rather than two fighting over the same KWin script and DBus name. Put the
+installed one back with:
+
+```bash
+systemctl --user start kdock
+```
+
+Only one kdock can run at a time. A second copy started without `--replace`
+exits immediately and says so.
+
+| Flag | Effect |
+|------|--------|
+| `--debug` | Verbose logging + diagnostics. Implies `--replace`. |
+| `--replace` | Stop any running kdock (service included) and take its place. |
+| `--qml-path <dir>` | Load QML from `<dir>` instead of the normal search order — e.g. run a development build against the installed QML to compare behaviour. |
 
 ```bash
 kdock --help       # all CLI options

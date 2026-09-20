@@ -3,8 +3,11 @@
 // at the requested edge using setWindowFlags and QScreen geometry.
 
 #include "LayerShellWindow.h"
+#include "LayerShellGlobal.h"
 
 #include <QGuiApplication>
+#include <QRegion>
+#include <QResizeEvent>
 #include <QScreen>
 #include <QShowEvent>
 #include <qpa/qplatformnativeinterface.h>
@@ -18,29 +21,11 @@
 
 #include <wayland-client.h>
 
-// Surface thickness while auto-hidden: thin enough to stay out of the way,
-// thick enough for the compositor to still deliver the hover that reveals it.
+// Input-region thickness while auto-hidden: thin enough to stay out of the
+// way, thick enough for the compositor to still deliver the hover that
+// reveals the dock. The surface itself keeps its full size — only this band
+// along the anchored edge accepts pointer events while hidden.
 static constexpr int kRevealStripPx = 2;
-
-// ── Wayland registry callbacks ─────────────────────────────────────────────
-
-static void registryGlobal(void *data, wl_registry *registry,
-                            uint32_t name, const char *interface, uint32_t version)
-{
-    auto *self = static_cast<LayerShellWindow *>(data);
-    if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
-        self->m_layerShell = static_cast<zwlr_layer_shell_v1 *>(
-            wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface,
-                             qMin(version, 4u)));
-    }
-}
-
-static void registryGlobalRemove(void *, wl_registry *, uint32_t) {}
-
-static const wl_registry_listener s_registryListener = {
-    registryGlobal,
-    registryGlobalRemove,
-};
 
 // ── Layer-surface event callbacks ──────────────────────────────────────────
 
@@ -69,6 +54,14 @@ static const zwlr_layer_surface_v1_listener s_layerSurfaceListener = {
     layerSurfaceClosed,
 };
 
+static zwlr_layer_shell_v1_layer layerEnum(const QString &name)
+{
+    if (name == QStringLiteral("background")) return ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND;
+    if (name == QStringLiteral("bottom"))     return ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM;
+    if (name == QStringLiteral("overlay"))    return ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY;
+    return ZWLR_LAYER_SHELL_V1_LAYER_TOP;
+}
+
 // ── LayerShellWindow ───────────────────────────────────────────────────────
 
 LayerShellWindow::LayerShellWindow()
@@ -92,24 +85,15 @@ LayerShellWindow::~LayerShellWindow()
 {
     if (m_layerSurface)
         zwlr_layer_surface_v1_destroy(m_layerSurface);
-    if (m_layerShell)
-        zwlr_layer_shell_v1_destroy(m_layerShell);
+    // m_layerShell is owned by LayerShellGlobal and shared with popups.
 }
 
 void LayerShellWindow::detectWayland()
 {
-    QPlatformNativeInterface *ni = QGuiApplication::platformNativeInterface();
-    if (!ni) return;
-
-    auto *display = static_cast<wl_display *>(
-        ni->nativeResourceForIntegration("wl_display"));
-    if (!display) return;
-
-    m_isWayland = true;
-
-    wl_registry *registry = wl_display_get_registry(display);
-    wl_registry_add_listener(registry, &s_registryListener, this);
-    wl_display_roundtrip(display);
+    // LayerShellGlobal owns the registry round-trip; the dock and its popups
+    // share the one bound zwlr_layer_shell_v1.
+    m_isWayland  = LayerShellGlobal::isWayland();
+    m_layerShell = LayerShellGlobal::shell();
 }
 
 void LayerShellWindow::showEvent(QShowEvent *event)
@@ -123,6 +107,25 @@ void LayerShellWindow::showEvent(QShowEvent *event)
         setupWaylandLayerSurface();
     else
         applyX11Geometry();
+
+    // Purely informational — the control flow above is unchanged. A dock that
+    // did not get a layer surface is the one that floats in the middle of the
+    // screen and turns up in alt-tab, so it should say so rather than leaving
+    // it to be guessed at.
+    if (m_layerSurface) {
+        qInfo("kdock [surface]: layer-shell surface created — anchored '%s', "
+              "thickness %d, exclusive zone %d",
+              qPrintable(m_anchor), m_thickness, m_exclusiveZone);
+    } else {
+        qWarning("kdock [surface]: NO layer-shell surface (%s).\n"
+                 "                 The dock will float where the compositor puts "
+                 "it — usually centred — and appear in alt-tab.",
+                 qPrintable(LayerShellGlobal::diagnostics()));
+    }
+
+    // The surface only exists from here on, so this is the earliest point a
+    // hidden-at-startup dock can have its reveal-strip input region applied.
+    applyInputMask();
 
 #ifdef HAVE_KF6_WINDOWSYSTEM
     KWindowEffects::enableBlurBehind(this, m_blurEnabled);
@@ -153,12 +156,14 @@ void LayerShellWindow::setupWaylandLayerSurface()
             ni->nativeResourceForScreen("wl_output", screen()));
     }
 
-    // LAYER_BOTTOM places the dock below regular windows so that context menus
-    // and settings panels (xdg-toplevel) can appear above it. The exclusive
-    // zone still prevents tiled windows from occupying the dock area.
+    // The dock defaults to the TOP layer, in front of ordinary windows — a
+    // dock behind them can't be seen over a maximised window, which makes
+    // both auto-hide and dodge pointless. This used to be LAYER_BOTTOM purely
+    // so the context menu could appear above the dock; menus now get their own
+    // OVERLAY surface (LayerShellPopup) and no longer need that workaround.
     m_layerSurface = zwlr_layer_shell_v1_get_layer_surface(
         m_layerShell, surface, output,
-        ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM,
+        layerEnum(m_layer),
         "kdock");
     if (!m_layerSurface) return;
 
@@ -203,7 +208,10 @@ void LayerShellWindow::setupWaylandLayerSurface()
     // Passing NULL to set_input_region resets to "whole surface accepts input".
     // This undoes any empty region that Qt may have set due to window flags,
     // ensuring pointer events are delivered even without keyboard focus.
+    // applyInputMask() re-narrows it afterwards if the dock is auto-hidden —
+    // hence dropping the cached mask, which no longer matches the surface.
     wl_surface_set_input_region(surface, nullptr);
+    m_maskApplied = false;
 
     wl_surface_commit(surface);
 
@@ -220,8 +228,11 @@ void LayerShellWindow::applyX11Geometry()
     QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen();
     if (!scr) return;
 
+    // Changing flags recreates the native window on XCB, which drops the
+    // XShape input mask with it.
     setFlags(Qt::BypassWindowManagerHint | Qt::FramelessWindowHint
              | Qt::WindowStaysOnTopHint);
+    m_maskApplied = false;
 
     const QRect geom = scr->availableGeometry();
 
@@ -238,9 +249,40 @@ void LayerShellWindow::applyX11Geometry()
     }
 }
 
+QRect LayerShellWindow::dockScreenRect() const
+{
+    QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen();
+    if (!scr) return QRect();
+
+    const QRect g = scr->geometry();
+    const int w = width()  > 0 ? width()  : g.width();
+    const int h = height() > 0 ? height() : g.height();
+
+    // The surface is pinned to one edge and stretched along it, so its origin
+    // follows from the screen geometry and our own size.
+    if (m_anchor == QStringLiteral("top"))
+        return QRect(g.x(), g.y(), g.width(), h);
+    if (m_anchor == QStringLiteral("left"))
+        return QRect(g.x(), g.y(), w, g.height());
+    if (m_anchor == QStringLiteral("right"))
+        return QRect(g.x() + g.width() - w, g.y(), w, g.height());
+    return QRect(g.x(), g.y() + g.height() - h, g.width(), h);
+}
+
+QPoint LayerShellWindow::mapToScreen(qreal x, qreal y) const
+{
+    const QRect r = dockScreenRect();
+    return QPoint(r.x() + qRound(x), r.y() + qRound(y));
+}
+
 void LayerShellWindow::setAnchor(const QString &anchor)
 {
     m_anchor = anchor;
+}
+
+void LayerShellWindow::setLayer(const QString &layer)
+{
+    m_layer = layer;
 }
 
 void LayerShellWindow::setThickness(int px)
@@ -251,6 +293,13 @@ void LayerShellWindow::setThickness(int px)
 void LayerShellWindow::setExclusiveZone(int px)
 {
     m_exclusiveZone = px;
+}
+
+void LayerShellWindow::setInteractiveThickness(int px)
+{
+    if (m_interactiveThickness == px) return;
+    m_interactiveThickness = px;
+    applyInputMask();
 }
 
 void LayerShellWindow::applyGeometryUpdate()
@@ -266,11 +315,14 @@ void LayerShellWindow::applyGeometryUpdate()
 
     zwlr_layer_surface_v1_set_exclusive_zone(m_layerSurface, m_exclusiveZone);
 
-    const int thickness = m_revealed ? m_thickness : kRevealStripPx;
+    // The surface is always the full configured thickness. Auto-hide is done
+    // by narrowing the input region (applyInputMask), never by resizing —
+    // a resize here would make the compositor churn pointer enter/leave and
+    // the dock would flicker while the cursor sat on it (issue #3).
     const bool horizontal = (m_anchor == QStringLiteral("bottom")
                           || m_anchor == QStringLiteral("top"));
-    const uint32_t w = horizontal ? 0 : static_cast<uint32_t>(thickness);
-    const uint32_t h = horizontal ? static_cast<uint32_t>(thickness) : 0;
+    const uint32_t w = horizontal ? 0 : static_cast<uint32_t>(m_thickness);
+    const uint32_t h = horizontal ? static_cast<uint32_t>(m_thickness) : 0;
     zwlr_layer_surface_v1_set_size(m_layerSurface, w, h);
 
     wl_surface_commit(surface);
@@ -279,13 +331,62 @@ void LayerShellWindow::applyGeometryUpdate()
         ni->nativeResourceForIntegration("wl_display"));
     if (display)
         wl_display_roundtrip(display);
+
+    // A thickness change moves the edge the reveal strip clings to.
+    applyInputMask();
+}
+
+void LayerShellWindow::resizeEvent(QResizeEvent *event)
+{
+    QQuickView::resizeEvent(event);
+    emit dockScreenRectChanged();
+    // The mask is expressed in window coordinates, so it has to be recomputed
+    // whenever the compositor hands us a new size.
+    applyInputMask();
+}
+
+void LayerShellWindow::applyInputMask()
+{
+    if (!isVisible()) return;
+
+    const int w = width();
+    const int h = height();
+    if (w <= 0 || h <= 0) return;
+
+    const bool vertical = (m_anchor == QStringLiteral("left")
+                        || m_anchor == QStringLiteral("right"));
+    const int available = vertical ? w : h;
+
+    // Hidden: only the reveal strip listens, so everything else falls through
+    // to the window underneath. Revealed: the band the dock actually occupies,
+    // never the whole window — the click-bounce headroom above it paints
+    // nothing and must not intercept pointer events.
+    const int band = m_revealed
+                   ? (m_interactiveThickness > 0 ? m_interactiveThickness : available)
+                   : kRevealStripPx;
+    const int strip = qBound(1, band, available);
+
+    QRegion mask;
+    if (m_anchor == QStringLiteral("bottom"))
+        mask = QRegion(0, h - strip, w, strip);
+    else if (m_anchor == QStringLiteral("top"))
+        mask = QRegion(0, 0, w, strip);
+    else if (m_anchor == QStringLiteral("left"))
+        mask = QRegion(0, 0, strip, h);
+    else
+        mask = QRegion(w - strip, 0, strip, h);
+
+    if (m_maskApplied && m_appliedMask == mask) return;
+    m_appliedMask = mask;
+    m_maskApplied = true;
+    setMask(mask);
 }
 
 void LayerShellWindow::setRevealed(bool revealed)
 {
     if (m_revealed == revealed) return;
     m_revealed = revealed;
-    applyGeometryUpdate();
+    applyInputMask();
 }
 
 void LayerShellWindow::reanchorToScreen(QScreen *targetScreen)
@@ -305,4 +406,8 @@ void LayerShellWindow::reanchorToScreen(QScreen *targetScreen)
     } else {
         applyX11Geometry();
     }
+
+    // Recreating the surface reset its input region to "everything".
+    applyInputMask();
+    emit dockScreenRectChanged();
 }
