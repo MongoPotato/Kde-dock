@@ -94,8 +94,9 @@ public:
     // changes or the screen the dock was on gets unplugged. Layer-shell binds
     // a surface to one wl_output for life, so on Wayland this tears down and
     // recreates the layer surface against the new screen's output; on X11
-    // it's just a geometry re-apply. No-op if already on this screen.
-    void reanchorToScreen(QScreen *targetScreen);
+    // it's just a geometry re-apply. No-op if already on this screen and the
+    // layer surface is alive, unless `force` is set.
+    void reanchorToScreen(QScreen *targetScreen, bool force = false);
 
     // Public so the C-style Wayland registry callback can write to it
     zwlr_layer_shell_v1 *m_layerShell = nullptr;
@@ -103,8 +104,14 @@ public:
 signals:
     void dockScreenRectChanged();
 
+    // The compositor closed the layer surface, typically because the output
+    // it was bound to was disconnected. The dock is now invisible until it is
+    // re-anchored to a screen that still exists.
+    void layerSurfaceClosed();
+
 protected:
     void showEvent(QShowEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
 
 private:

@@ -34,11 +34,16 @@
 #include <QQmlEngine>
 #include <QQmlError>
 #include <QScreen>
+#include <QTimer>
 #include <QUrl>
 
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
+    // The dock is a permanent fixture: a window going away (a menu, or the
+    // compositor closing the dock's surface when its monitor is unplugged)
+    // must never be taken as a reason to exit.
+    app.setQuitOnLastWindowClosed(false);
     app.setApplicationName(QStringLiteral("kdock"));
     app.setOrganizationDomain(QStringLiteral("kdock"));
     app.setOrganizationName(QStringLiteral("kdock"));
@@ -179,16 +184,55 @@ int main(int argc, char *argv[])
     // Re-anchor to the right screen whenever KDE's primary screen changes,
     // or a screen is plugged/unplugged — covers both "moved the primary
     // screen in Display settings" and "unplugged the screen the dock was on".
-    auto reanchorScreen = [&]() {
-        if (QScreen *target = resolvePreferredScreen()) {
-            window.reanchorToScreen(target);
-            // The dodge rectangle is screen-relative, so it moves with the dock.
-            applyDockGeometry();
+    //
+    // Hotplug arrives as a burst (layer surface closed, primary changed,
+    // screen removed, sometimes in that order, sometimes not), so the events
+    // only arm a short timer and the dock moves once things have settled.
+    // Acting on the first event could bind the dock to an output that is
+    // about to disappear.
+    QTimer reanchorTimer;
+    reanchorTimer.setSingleShot(true);
+    reanchorTimer.setInterval(300);
+    bool surfaceLost = false;
+    int lostRetries = 0;
+
+    QObject::connect(&reanchorTimer, &QTimer::timeout, &window, [&]() {
+        QScreen *target = resolvePreferredScreen();
+        if (!target) {
+            // Every output is gone (lid closed with no external screen, or
+            // mid-reconfiguration); screenAdded will bring us back here.
+            return;
         }
+        const bool force = surfaceLost;
+        surfaceLost = false;
+        window.reanchorToScreen(target, force);
+        applyDockGeometry();
+        window.applyGeometryUpdate();
+    });
+
+    auto scheduleReanchor = [&]() {
+        lostRetries = 0;
+        reanchorTimer.start();
     };
-    QObject::connect(qApp, &QGuiApplication::primaryScreenChanged, &window, reanchorScreen);
-    QObject::connect(qApp, &QGuiApplication::screenAdded,   &window, reanchorScreen);
-    QObject::connect(qApp, &QGuiApplication::screenRemoved, &window, reanchorScreen);
+    QObject::connect(qApp, &QGuiApplication::primaryScreenChanged, &window, scheduleReanchor);
+    QObject::connect(qApp, &QGuiApplication::screenAdded,   &window, scheduleReanchor);
+    QObject::connect(qApp, &QGuiApplication::screenRemoved, &window, scheduleReanchor);
+
+    // The compositor dropped the dock's surface — its output went away. Even
+    // if Qt never reports the screen change (or reports it first), rebuild
+    // the surface on whichever screen is preferred now. The retry cap stops
+    // a compositor that keeps closing the surface from turning this into a
+    // tight loop; a real screen change resets it.
+    QObject::connect(&window, &LayerShellWindow::layerSurfaceClosed, &window, [&]() {
+        if (lostRetries >= 5) {
+            qWarning("kdock: layer surface keeps being closed; waiting for a "
+                     "screen change before trying again");
+            return;
+        }
+        ++lostRetries;
+        surfaceLost = true;
+        reanchorTimer.start();
+    });
 
     // Register custom image provider so QML can use "image://kdock/<appId>"
     window.engine()->addImageProvider(QStringLiteral("kdock"), new IconProvider());
