@@ -6,6 +6,7 @@
 #include "LayerShellGlobal.h"
 
 #include <QGuiApplication>
+#include <QHideEvent>
 #include <QRegion>
 #include <QResizeEvent>
 #include <QScreen>
@@ -45,8 +46,17 @@ static void layerSurfaceConfigure(void *data, zwlr_layer_surface_v1 *surface,
 
 static void layerSurfaceClosed(void *data, zwlr_layer_surface_v1 *)
 {
+    // The compositor sends this when the output the dock is bound to goes
+    // away — e.g. the external monitor was unplugged. This used to close()
+    // the window, and since the dock is the app's only window that quit
+    // kdock outright (exit code 0, so systemd's Restart=on-failure didn't
+    // bring it back either): the laptop screen was left without a dock.
+    // Report it instead and let the owner move the dock to a live screen.
     auto *self = static_cast<LayerShellWindow *>(data);
-    QMetaObject::invokeMethod(self, &LayerShellWindow::close, Qt::QueuedConnection);
+    qInfo("kdock [surface]: compositor closed the layer surface "
+          "(its output probably went away)");
+    QMetaObject::invokeMethod(self, &LayerShellWindow::layerSurfaceClosed,
+                              Qt::QueuedConnection);
 }
 
 static const zwlr_layer_surface_v1_listener s_layerSurfaceListener = {
@@ -130,6 +140,19 @@ void LayerShellWindow::showEvent(QShowEvent *event)
 #ifdef HAVE_KF6_WINDOWSYSTEM
     KWindowEffects::enableBlurBehind(this, m_blurEnabled);
 #endif
+}
+
+void LayerShellWindow::hideEvent(QHideEvent *event)
+{
+    // QtWayland destroys the wl_surface on hide and makes a fresh one on the
+    // next show, so the layer surface has to go with it. Clearing
+    // m_shellApplied makes that next show build a new one.
+    if (m_layerSurface) {
+        zwlr_layer_surface_v1_destroy(m_layerSurface);
+        m_layerSurface = nullptr;
+    }
+    m_shellApplied = false;
+    QQuickView::hideEvent(event);
 }
 
 void LayerShellWindow::setBlurEnabled(bool enabled)
@@ -389,25 +412,31 @@ void LayerShellWindow::setRevealed(bool revealed)
     applyInputMask();
 }
 
-void LayerShellWindow::reanchorToScreen(QScreen *targetScreen)
+void LayerShellWindow::reanchorToScreen(QScreen *targetScreen, bool force)
 {
-    if (!targetScreen || screen() == targetScreen) return;
+    if (!targetScreen) return;
+    if (!force && screen() == targetScreen && (m_layerSurface || !m_isWayland))
+        return;
 
-    setScreen(targetScreen);
+    qInfo("kdock [surface]: moving dock to screen '%s'",
+          qPrintable(targetScreen->name()));
 
     if (m_isWayland && m_layerShell) {
-        if (m_layerSurface) {
-            zwlr_layer_surface_v1_destroy(m_layerSurface);
-            m_layerSurface = nullptr;
-        }
-        // setupWaylandLayerSurface() re-reads screen() for the wl_output, so
-        // it picks up targetScreen and rebinds the layer-shell role there.
-        setupWaylandLayerSurface();
+        // A wl_surface that already has a buffer can't be given a new layer
+        // surface (the protocol's already_constructed error), so destroying
+        // just the role and re-requesting it on the same surface isn't
+        // enough. Cycle the window instead: hide drops the wl_surface (and,
+        // via hideEvent, the layer surface), show creates a fresh wl_surface
+        // and showEvent binds it to targetScreen's wl_output.
+        const bool wasVisible = isVisible();
+        if (wasVisible) hide();
+        setScreen(targetScreen);
+        if (wasVisible) show();
     } else {
+        setScreen(targetScreen);
         applyX11Geometry();
+        applyInputMask();
     }
 
-    // Recreating the surface reset its input region to "everything".
-    applyInputMask();
     emit dockScreenRectChanged();
 }
