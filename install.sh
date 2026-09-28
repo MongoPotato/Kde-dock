@@ -56,6 +56,28 @@ if [[ ${#MISSING[@]} -gt 0 ]]; then
     exit 1
 fi
 
+# ── Disk space check ───────────────────────────────────────────────────────
+# The compiler writes temp files to $TMPDIR (default /tmp), which is often a
+# small tmpfs. When it fills up, CMake misreports this as a "broken" compiler.
+MIN_FREE_MB=500
+check_space() {
+    local dir="$1" label="$2" free_mb
+    free_mb=$(df -Pk "$dir" 2>/dev/null | awk 'NR==2 {print int($4/1024)}')
+    if [[ -n "$free_mb" && "$free_mb" -lt "$MIN_FREE_MB" ]]; then
+        echo "ERROR: Only ${free_mb} MB free in $label ($dir); need at least ${MIN_FREE_MB} MB."
+        return 1
+    fi
+}
+
+SPACE_OK=true
+check_space "${TMPDIR:-/tmp}" "temp directory" || SPACE_OK=false
+check_space "." "build directory" || SPACE_OK=false
+if ! $SPACE_OK; then
+    echo "Free up some space, or point the compiler at a roomier temp dir:"
+    echo "  mkdir -p ~/.cache/tmp && TMPDIR=~/.cache/tmp ./install.sh"
+    exit 1
+fi
+
 # ── Build ──────────────────────────────────────────────────────────────────
 echo "==> Building KDock..."
 run cmake -B build -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release
