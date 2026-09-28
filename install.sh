@@ -5,7 +5,7 @@
 #   1. Check for required build deps (cmake, qt6-base-dev, etc.)
 #   2. cmake -B build -DCMAKE_INSTALL_PREFIX=$HOME/.local
 #   3. cmake --build build -j$(nproc)
-#   4. cmake --install build
+#   4. cmake --build build --target install
 #   5. Copy default_dock.json to ~/.config/kdock/dock.json if not present
 #   6. Create ~/.config/kdock/icons/ directory
 #   7. Install systemd user unit to ~/.config/systemd/user/kdock.service
@@ -80,9 +80,18 @@ fi
 
 # ── Build ──────────────────────────────────────────────────────────────────
 echo "==> Building KDock..."
+# A configure that failed part-way (e.g. disk full) can leave a cache where
+# CMake could not detect the binary format. That forces a relink step at
+# install time, which breaks with "cannot find .../CMakeRelink.dir/kdock".
+if [[ -f build/CMakeCache.txt ]] && grep -q '^CMAKE_EXECUTABLE_FORMAT:[A-Z]*=Unknown' build/CMakeCache.txt; then
+    echo "    Stale build cache detected — removing build/ and reconfiguring."
+    run rm -rf build
+fi
 run cmake -B build -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release
 run cmake --build build -j"$(nproc)"
-run cmake --install build
+# Use the install target rather than `cmake --install`: it runs the
+# preinstall/relink step first if the generator needs one.
+run cmake --build build --target install
 
 # ── Config directory ───────────────────────────────────────────────────────
 echo "==> Setting up config directory..."
