@@ -15,6 +15,7 @@
 //   position at the screen edge manually.
 
 #include <QPoint>
+#include <QPointer>
 #include <QQuickView>
 #include <QRect>
 #include <QRegion>
@@ -94,9 +95,13 @@ public:
     // changes or the screen the dock was on gets unplugged. Layer-shell binds
     // a surface to one wl_output for life, so on Wayland this tears down and
     // recreates the layer surface against the new screen's output; on X11
-    // it's just a geometry re-apply. No-op if already on this screen and the
-    // layer surface is alive, unless `force` is set.
-    void reanchorToScreen(QScreen *targetScreen, bool force = false);
+    // it's just a geometry re-apply. No-op if the live layer surface is
+    // already bound to this screen. Refuses Qt's placeholder screen (no
+    // output to bind to) and waits for a real one instead.
+    void reanchorToScreen(QScreen *targetScreen);
+
+    // Called from the layer surface's C `closed` callback.
+    void handleLayerSurfaceClosed(zwlr_layer_surface_v1 *surface);
 
     // Public so the C-style Wayland registry callback can write to it
     zwlr_layer_shell_v1 *m_layerShell = nullptr;
@@ -141,4 +146,12 @@ private:
     bool m_maskApplied = false;
 
     zwlr_layer_surface_v1 *m_layerSurface = nullptr;
+
+    // The screen whose output m_layerSurface is actually bound to — not
+    // screen(), which Qt reassigns by itself when that screen is unplugged,
+    // while the surface stays bound to the dead output. Null when the
+    // surface was created without an output. m_surfaceClosed is set once the
+    // compositor has closed the surface; it is dead from then on.
+    QPointer<QScreen> m_boundScreen;
+    bool m_surfaceClosed = false;
 };
