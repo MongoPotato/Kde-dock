@@ -44,7 +44,7 @@ static void layerSurfaceConfigure(void *data, zwlr_layer_surface_v1 *surface,
     }
 }
 
-static void layerSurfaceClosed(void *data, zwlr_layer_surface_v1 *)
+static void layerSurfaceClosed(void *data, zwlr_layer_surface_v1 *surface)
 {
     // The compositor sends this when the output the dock is bound to goes
     // away — e.g. the external monitor was unplugged. This used to close()
@@ -55,8 +55,9 @@ static void layerSurfaceClosed(void *data, zwlr_layer_surface_v1 *)
     auto *self = static_cast<LayerShellWindow *>(data);
     qInfo("kdock [surface]: compositor closed the layer surface "
           "(its output probably went away)");
-    QMetaObject::invokeMethod(self, &LayerShellWindow::layerSurfaceClosed,
-                              Qt::QueuedConnection);
+    QMetaObject::invokeMethod(self, [self, surface]() {
+        self->handleLayerSurfaceClosed(surface);
+    }, Qt::QueuedConnection);
 }
 
 static const zwlr_layer_surface_v1_listener s_layerSurfaceListener = {
@@ -151,6 +152,8 @@ void LayerShellWindow::hideEvent(QHideEvent *event)
         zwlr_layer_surface_v1_destroy(m_layerSurface);
         m_layerSurface = nullptr;
     }
+    m_boundScreen = nullptr;
+    m_surfaceClosed = false;
     m_shellApplied = false;
     QQuickView::hideEvent(event);
 }
@@ -173,11 +176,9 @@ void LayerShellWindow::setupWaylandLayerSurface()
         ni->nativeResourceForWindow("wl_surface", this));
     if (!surface) return;
 
-    wl_output *output = nullptr;
-    if (screen()) {
-        output = static_cast<wl_output *>(
-            ni->nativeResourceForScreen("wl_output", screen()));
-    }
+    // Null only for Qt's placeholder screen; the compositor then picks an
+    // output itself, and the next real screen change re-binds the dock.
+    wl_output *output = LayerShellGlobal::outputFor(screen());
 
     // The dock defaults to the TOP layer, in front of ordinary windows — a
     // dock behind them can't be seen over a maximised window, which makes
@@ -189,6 +190,8 @@ void LayerShellWindow::setupWaylandLayerSurface()
         layerEnum(m_layer),
         "kdock");
     if (!m_layerSurface) return;
+    m_boundScreen = output ? screen() : nullptr;
+    m_surfaceClosed = false;
 
     uint32_t anchorBits = 0;
     if (m_anchor == QStringLiteral("bottom")) {
@@ -412,11 +415,33 @@ void LayerShellWindow::setRevealed(bool revealed)
     applyInputMask();
 }
 
-void LayerShellWindow::reanchorToScreen(QScreen *targetScreen, bool force)
+void LayerShellWindow::handleLayerSurfaceClosed(zwlr_layer_surface_v1 *surface)
+{
+    // A close for a surface that has since been replaced is stale news.
+    if (surface != m_layerSurface) return;
+    m_surfaceClosed = true;
+    emit layerSurfaceClosed();
+}
+
+void LayerShellWindow::reanchorToScreen(QScreen *targetScreen)
 {
     if (!targetScreen) return;
-    if (!force && screen() == targetScreen && (m_layerSurface || !m_isWayland))
+
+    if (m_isWayland && m_layerShell) {
+        if (!LayerShellGlobal::outputFor(targetScreen)) {
+            qInfo("kdock [surface]: no real output to move to yet; waiting "
+                  "for a screen to appear");
+            return;
+        }
+        // Compare against the screen the surface is bound to, not screen():
+        // when a monitor is unplugged Qt moves the window to another screen
+        // by itself, and the surface left on the dead output would pass as
+        // "already there".
+        if (m_layerSurface && !m_surfaceClosed && m_boundScreen == targetScreen)
+            return;
+    } else if (!m_isWayland && screen() == targetScreen) {
         return;
+    }
 
     qInfo("kdock [surface]: moving dock to screen '%s'",
           qPrintable(targetScreen->name()));

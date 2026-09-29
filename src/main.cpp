@@ -193,7 +193,6 @@ int main(int argc, char *argv[])
     QTimer reanchorTimer;
     reanchorTimer.setSingleShot(true);
     reanchorTimer.setInterval(300);
-    bool surfaceLost = false;
     int lostRetries = 0;
 
     QObject::connect(&reanchorTimer, &QTimer::timeout, &window, [&]() {
@@ -203,9 +202,7 @@ int main(int argc, char *argv[])
             // mid-reconfiguration); screenAdded will bring us back here.
             return;
         }
-        const bool force = surfaceLost;
-        surfaceLost = false;
-        window.reanchorToScreen(target, force);
+        window.reanchorToScreen(target);
         applyDockGeometry();
         window.applyGeometryUpdate();
     });
@@ -230,7 +227,6 @@ int main(int argc, char *argv[])
             return;
         }
         ++lostRetries;
-        surfaceLost = true;
         reanchorTimer.start();
     });
 
