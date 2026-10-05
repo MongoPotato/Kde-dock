@@ -95,9 +95,11 @@ public:
     // changes or the screen the dock was on gets unplugged. Layer-shell binds
     // a surface to one wl_output for life, so on Wayland this tears down and
     // recreates the layer surface against the new screen's output; on X11
-    // it's just a geometry re-apply. No-op if the live layer surface is
-    // already bound to this screen. Refuses Qt's placeholder screen (no
-    // output to bind to) and waits for a real one instead.
+    // it's a geometry re-apply, done every time since the screen itself may
+    // have moved. On Wayland, a no-op if the live layer surface is already
+    // bound to this screen. Refuses Qt's placeholder screen (no
+    // output to bind to) and waits for a real one instead. Also used for the
+    // initial placement, before the window is first shown.
     void reanchorToScreen(QScreen *targetScreen);
 
     // Called from the layer surface's C `closed` callback.
@@ -154,4 +156,12 @@ private:
     // compositor has closed the surface; it is dead from then on.
     QPointer<QScreen> m_boundScreen;
     bool m_surfaceClosed = false;
+
+    // The screen reanchorToScreen() last asked for. The X11 fallback places
+    // the window from this rather than screen(): XCB re-derives screen() from
+    // the window's position, so a fresh window at (0,0) "is" on whatever
+    // monitor holds the origin no matter what setScreen() said, and after an
+    // unplug screen() names the laptop while the window is still out where
+    // the monitor was.
+    QPointer<QScreen> m_targetScreen;
 };

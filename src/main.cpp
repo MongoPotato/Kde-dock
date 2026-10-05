@@ -48,6 +48,10 @@ int main(int argc, char *argv[])
     app.setOrganizationDomain(QStringLiteral("kdock"));
     app.setOrganizationName(QStringLiteral("kdock"));
     app.setApplicationVersion(QStringLiteral("1.0"));
+    // "wayland" or "xcb". Under xcb (XWayland) none of the layer-shell code
+    // runs and the dock uses the X11 fallback, which behaves differently on
+    // hotplug — so say which one this is.
+    qInfo("kdock: Qt platform '%s'", qPrintable(QGuiApplication::platformName()));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("KDE Plasma 6 floating dock"));
@@ -140,7 +144,7 @@ int main(int argc, char *argv[])
     };
 
     if (QScreen *initialScreen = resolvePreferredScreen())
-        window.setScreen(initialScreen);
+        window.reanchorToScreen(initialScreen);
 
     // All three numbers come from ConfigWatcher so nothing here can drift out
     // of step with what QML actually paints:
@@ -214,6 +218,19 @@ int main(int argc, char *argv[])
     QObject::connect(qApp, &QGuiApplication::primaryScreenChanged, &window, scheduleReanchor);
     QObject::connect(qApp, &QGuiApplication::screenAdded,   &window, scheduleReanchor);
     QObject::connect(qApp, &QGuiApplication::screenRemoved, &window, scheduleReanchor);
+
+    // A screen can also move or resize without anything being plugged in or
+    // out — unplugging a monitor that sat left of the laptop shifts the
+    // laptop panel's origin, and a Plasma panel appearing changes the
+    // available area. The X11 fallback positions the dock in absolute
+    // coordinates, so it has to follow.
+    auto watchScreen = [&](QScreen *s) {
+        QObject::connect(s, &QScreen::geometryChanged,          &window, scheduleReanchor);
+        QObject::connect(s, &QScreen::availableGeometryChanged, &window, scheduleReanchor);
+    };
+    for (QScreen *s : QGuiApplication::screens())
+        watchScreen(s);
+    QObject::connect(qApp, &QGuiApplication::screenAdded, &window, watchScreen);
 
     // The compositor dropped the dock's surface — its output went away. Even
     // if Qt never reports the screen change (or reports it first), rebuild

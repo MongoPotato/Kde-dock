@@ -251,7 +251,9 @@ void LayerShellWindow::setupWaylandLayerSurface()
 
 void LayerShellWindow::applyX11Geometry()
 {
-    QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen();
+    QScreen *scr = m_targetScreen ? m_targetScreen.data()
+                 : screen()       ? screen()
+                                  : QGuiApplication::primaryScreen();
     if (!scr) return;
 
     // Changing flags recreates the native window on XCB, which drops the
@@ -439,12 +441,16 @@ void LayerShellWindow::reanchorToScreen(QScreen *targetScreen)
         // "already there".
         if (m_layerSurface && !m_surfaceClosed && m_boundScreen == targetScreen)
             return;
-    } else if (!m_isWayland && screen() == targetScreen) {
-        return;
     }
+    // No early return on X11: the window sits at absolute coordinates, and
+    // when its monitor is unplugged Qt moves it to the remaining screen
+    // without moving it — screen() already reads "laptop" while the window
+    // is still out where the monitor used to be. Re-applying the geometry is
+    // cheap and is the only thing that brings it back.
 
     qInfo("kdock [surface]: moving dock to screen '%s'",
           qPrintable(targetScreen->name()));
+    m_targetScreen = targetScreen;
 
     if (m_isWayland && m_layerShell) {
         // A wl_surface that already has a buffer can't be given a new layer
