@@ -2,7 +2,8 @@
 // Uses LayerShellWindow (QQuickView subclass) directly so QML is loaded
 // into our own window — not a window created internally by QQmlApplicationEngine.
 // Qt::BypassWindowManagerHint in LayerShellWindow prevents the Wayland QPA
-// from assigning xdg-shell, leaving the surface free for wlr-layer-shell.
+// from assigning xdg-shell, leaving the surface free for wlr-layer-shell —
+// but only with QT_WAYLAND_USE_BYPASSWINDOWMANAGERHINT set, see main().
 //
 // Context properties exposed to QML:
 //   dockModel           → DockModel*           list of launcher entries
@@ -39,6 +40,15 @@
 
 int main(int argc, char *argv[])
 {
+    // QtWayland ignores Qt::BypassWindowManagerHint unless this is set, and
+    // gives the dock and its menus an ordinary xdg-shell role instead. A
+    // surface can only ever have one role, so the layer-shell request that
+    // follows is refused and the dock ends up a plain window (or the
+    // compositor drops the connection). Must be set before QGuiApplication
+    // loads the platform plugin. Only those two windows use the hint.
+    if (!qEnvironmentVariableIsSet("QT_WAYLAND_USE_BYPASSWINDOWMANAGERHINT"))
+        qputenv("QT_WAYLAND_USE_BYPASSWINDOWMANAGERHINT", "1");
+
     QGuiApplication app(argc, argv);
     // The dock is a permanent fixture: a window going away (a menu, or the
     // compositor closing the dock's surface when its monitor is unplugged)

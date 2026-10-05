@@ -9,8 +9,10 @@
 //
 // Key design:
 //   Qt::BypassWindowManagerHint prevents Qt's Wayland QPA from applying
-//   the xdg-shell protocol to the window. The window is created as a bare
-//   wl_surface, which we then assign the wlr-layer-shell role.
+//   the xdg-shell protocol to the window (only while
+//   QT_WAYLAND_USE_BYPASSWINDOWMANAGERHINT is set — main() sets it). The
+//   window is created as a bare wl_surface, which we then assign the
+//   wlr-layer-shell role.
 //   On X11/XWayland the flag creates an override-redirect window that we
 //   position at the screen edge manually.
 
