@@ -349,6 +349,9 @@ QString ConfigWatcher::autohideTriggerZone() const
 int ConfigWatcher::autohideTriggerMarginPx() const
 {
     return qBound(0, m_config.value(QStringLiteral("autohideTriggerMarginPx")).toInt(48), 1000);
+bool ConfigWatcher::pushWindows() const
+{
+    return m_config.value(QStringLiteral("pushWindows")).toBool(false);
 }
 
 bool ConfigWatcher::magnify() const
