@@ -9,7 +9,6 @@
 #include <QHideEvent>
 #include <QResizeEvent>
 #include <QScreen>
-#include <qpa/qplatformnativeinterface.h>
 
 #include "wayland-wlr-layer-shell-unstable-v1-client-protocol.h"
 #include <wayland-client.h>
@@ -156,13 +155,9 @@ void LayerShellPopup::createLayerSurface()
 
     // Bind to the output the popup is being opened on, so the margins below
     // are measured from the right screen's top-left corner.
-    wl_output *output = nullptr;
     QScreen *target = QGuiApplication::screenAt(QPoint(m_popupX, m_popupY));
     if (!target) target = screen();
-    if (target) {
-        if (QPlatformNativeInterface *ni = QGuiApplication::platformNativeInterface())
-            output = static_cast<wl_output *>(ni->nativeResourceForScreen("wl_output", target));
-    }
+    wl_output *output = LayerShellGlobal::outputFor(target);
 
     m_layerSurface = zwlr_layer_shell_v1_get_layer_surface(
         shell, surface, output,

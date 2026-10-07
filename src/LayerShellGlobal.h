@@ -15,6 +15,8 @@
 
 struct zwlr_layer_shell_v1;
 struct wl_surface;
+struct wl_output;
+class QScreen;
 class QWindow;
 
 namespace LayerShellGlobal {
@@ -34,6 +36,13 @@ inline bool available() { return shell() != nullptr; }
 
 // The wl_surface behind a QWindow, or nullptr if it has none yet.
 wl_surface *surfaceFor(QWindow *window);
+
+// The wl_output behind a QScreen, or nullptr for no screen or for the
+// placeholder screen Qt puts up while no real output exists (e.g. between
+// unplugging a monitor and the laptop panel coming back). A layer surface
+// created with a null output is placed wherever the compositor likes, so a
+// null here means "don't bind yet", not "any screen will do".
+wl_output *outputFor(QScreen *screen);
 
 // Block until the compositor has processed everything sent so far.
 void roundtrip();

@@ -1,8 +1,10 @@
 #include "LayerShellGlobal.h"
 
 #include <QGuiApplication>
+#include <QScreen>
 #include <QWindow>
 #include <qpa/qplatformnativeinterface.h>
+#include <qpa/qplatformscreen.h>
 
 #include "wayland-wlr-layer-shell-unstable-v1-client-protocol.h"
 #include <wayland-client.h>
@@ -89,6 +91,19 @@ wl_surface *surfaceFor(QWindow *window)
     QPlatformNativeInterface *ni = QGuiApplication::platformNativeInterface();
     if (!ni || !window) return nullptr;
     return static_cast<wl_surface *>(ni->nativeResourceForWindow("wl_surface", window));
+}
+
+wl_output *outputFor(QScreen *screen)
+{
+    QPlatformNativeInterface *ni = QGuiApplication::platformNativeInterface();
+    if (!ni || !screen) return nullptr;
+    // Older QtWayland (6.4) casts the placeholder to a QWaylandScreen without
+    // checking, so it has to be filtered out here rather than trusted to
+    // return null.
+    if (!screen->handle() || screen->handle()->isPlaceholder()) return nullptr;
+    // The key is "output". Asking for "wl_output" is silently answered with
+    // null, which is how the dock used to end up unbound to any screen.
+    return static_cast<wl_output *>(ni->nativeResourceForScreen("output", screen));
 }
 
 QString diagnostics()

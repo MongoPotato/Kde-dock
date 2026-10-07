@@ -2,7 +2,8 @@
 // Uses LayerShellWindow (QQuickView subclass) directly so QML is loaded
 // into our own window — not a window created internally by QQmlApplicationEngine.
 // Qt::BypassWindowManagerHint in LayerShellWindow prevents the Wayland QPA
-// from assigning xdg-shell, leaving the surface free for wlr-layer-shell.
+// from assigning xdg-shell, leaving the surface free for wlr-layer-shell —
+// but only with QT_WAYLAND_USE_BYPASSWINDOWMANAGERHINT set, see main().
 //
 // Context properties exposed to QML:
 //   dockModel           → DockModel*           list of launcher entries
@@ -39,6 +40,15 @@
 
 int main(int argc, char *argv[])
 {
+    // QtWayland ignores Qt::BypassWindowManagerHint unless this is set, and
+    // gives the dock and its menus an ordinary xdg-shell role instead. A
+    // surface can only ever have one role, so the layer-shell request that
+    // follows is refused and the dock ends up a plain window (or the
+    // compositor drops the connection). Must be set before QGuiApplication
+    // loads the platform plugin. Only those two windows use the hint.
+    if (!qEnvironmentVariableIsSet("QT_WAYLAND_USE_BYPASSWINDOWMANAGERHINT"))
+        qputenv("QT_WAYLAND_USE_BYPASSWINDOWMANAGERHINT", "1");
+
     QGuiApplication app(argc, argv);
     // The dock is a permanent fixture: a window going away (a menu, or the
     // compositor closing the dock's surface when its monitor is unplugged)
@@ -48,6 +58,10 @@ int main(int argc, char *argv[])
     app.setOrganizationDomain(QStringLiteral("kdock"));
     app.setOrganizationName(QStringLiteral("kdock"));
     app.setApplicationVersion(QStringLiteral("1.0"));
+    // "wayland" or "xcb". Under xcb (XWayland) none of the layer-shell code
+    // runs and the dock uses the X11 fallback, which behaves differently on
+    // hotplug — so say which one this is.
+    qInfo("kdock: Qt platform '%s'", qPrintable(QGuiApplication::platformName()));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("KDE Plasma 6 floating dock"));
@@ -140,7 +154,7 @@ int main(int argc, char *argv[])
     };
 
     if (QScreen *initialScreen = resolvePreferredScreen())
-        window.setScreen(initialScreen);
+        window.reanchorToScreen(initialScreen);
 
     // All three numbers come from ConfigWatcher so nothing here can drift out
     // of step with what QML actually paints:
@@ -193,7 +207,6 @@ int main(int argc, char *argv[])
     QTimer reanchorTimer;
     reanchorTimer.setSingleShot(true);
     reanchorTimer.setInterval(300);
-    bool surfaceLost = false;
     int lostRetries = 0;
 
     QObject::connect(&reanchorTimer, &QTimer::timeout, &window, [&]() {
@@ -203,9 +216,7 @@ int main(int argc, char *argv[])
             // mid-reconfiguration); screenAdded will bring us back here.
             return;
         }
-        const bool force = surfaceLost;
-        surfaceLost = false;
-        window.reanchorToScreen(target, force);
+        window.reanchorToScreen(target);
         applyDockGeometry();
         window.applyGeometryUpdate();
     });
@@ -217,6 +228,19 @@ int main(int argc, char *argv[])
     QObject::connect(qApp, &QGuiApplication::primaryScreenChanged, &window, scheduleReanchor);
     QObject::connect(qApp, &QGuiApplication::screenAdded,   &window, scheduleReanchor);
     QObject::connect(qApp, &QGuiApplication::screenRemoved, &window, scheduleReanchor);
+
+    // A screen can also move or resize without anything being plugged in or
+    // out — unplugging a monitor that sat left of the laptop shifts the
+    // laptop panel's origin, and a Plasma panel appearing changes the
+    // available area. The X11 fallback positions the dock in absolute
+    // coordinates, so it has to follow.
+    auto watchScreen = [&](QScreen *s) {
+        QObject::connect(s, &QScreen::geometryChanged,          &window, scheduleReanchor);
+        QObject::connect(s, &QScreen::availableGeometryChanged, &window, scheduleReanchor);
+    };
+    for (QScreen *s : QGuiApplication::screens())
+        watchScreen(s);
+    QObject::connect(qApp, &QGuiApplication::screenAdded, &window, watchScreen);
 
     // The compositor dropped the dock's surface — its output went away. Even
     // if Qt never reports the screen change (or reports it first), rebuild
@@ -230,7 +254,6 @@ int main(int argc, char *argv[])
             return;
         }
         ++lostRetries;
-        surfaceLost = true;
         reanchorTimer.start();
     });
 
