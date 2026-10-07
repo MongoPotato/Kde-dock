@@ -31,6 +31,7 @@ public:
     Q_INVOKABLE void applyAutohide(bool on);
     Q_INVOKABLE void applyAutohideMode(const QString &mode);
     Q_INVOKABLE void applyAutohideDelay(int ms);
+    Q_INVOKABLE void applyAutohideTriggerZone(const QString &zone);
     Q_INVOKABLE void applyReserveSpace(bool on);
     Q_INVOKABLE void applyIconBgShape(const QString &shape);
     Q_INVOKABLE void applyIconBgOpacity(double v);

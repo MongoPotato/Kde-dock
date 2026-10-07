@@ -276,6 +276,35 @@ Window {
                     }
                 }
 
+                // ── Auto-hide trigger zone ────────────────────────────────
+                RowLayout { spacing: 12; Layout.fillWidth: true
+                    enabled: config.autohideMode !== "never"
+                    opacity: enabled ? 1.0 : 0.45
+                    ColumnLayout { spacing: 2
+                        Text { text: "Reveal area"; color: "white"; font.pixelSize: 13 }
+                        Text {
+                            text: config.autohideTriggerZone === "dock"
+                                  ? "Only where the dock is, plus "
+                                    + config.autohideTriggerMarginPx + " px either side"
+                                  : "Anywhere along the screen edge"
+                            color: "#888"; font.pixelSize: 11
+                        }
+                    }
+                    Item { Layout.fillWidth: true }
+                    ComboBox {
+                        Layout.minimumWidth: 190
+                        model: ["Whole screen edge", "Dock area only"]
+                        readonly property var zoneKeys: ["edge", "dock"]
+                        currentIndex: Math.max(0, zoneKeys.indexOf(config.autohideTriggerZone))
+                        background: Rectangle { color: "#3a3a5e"; radius: 4; border.color: "#555577"; border.width: 1 }
+                        contentItem: Text {
+                            text: parent.displayText; color: "white"; font.pixelSize: 13
+                            leftPadding: 8; verticalAlignment: Text.AlignVCenter
+                        }
+                        onActivated: settings.applyAutohideTriggerZone(zoneKeys[currentIndex])
+                    }
+                }
+
                 // ── Auto-hide delay ───────────────────────────────────────
                 RowLayout { spacing: 12; Layout.fillWidth: true
                     enabled: config.autohideMode !== "never"

@@ -74,6 +74,12 @@ class ConfigWatcher : public QObject {
     // Grace period between the cursor leaving the icon bar and the dock
     // sliding away, in milliseconds.
     Q_PROPERTY(int autohideDelayMs READ autohideDelayMs NOTIFY configChanged)
+    // Where the cursor has to be to reveal the auto-hidden dock and to keep
+    // it up:
+    //   "edge" — anywhere along the dock's screen edge (the default)
+    //   "dock" — only over the icons, plus autohideTriggerMarginPx either side
+    Q_PROPERTY(QString autohideTriggerZone READ autohideTriggerZone NOTIFY configChanged)
+    Q_PROPERTY(int autohideTriggerMarginPx READ autohideTriggerMarginPx NOTIFY configChanged)
     Q_PROPERTY(bool magnify READ magnify NOTIFY configChanged)
     Q_PROPERTY(double magnifyScale READ magnifyScale NOTIFY configChanged)
     Q_PROPERTY(int magnifyRadius READ magnifyRadius NOTIFY configChanged)
@@ -126,6 +132,8 @@ public:
     bool autohide() const;
     bool reserveSpace() const;
     int autohideDelayMs() const;
+    QString autohideTriggerZone() const;
+    int autohideTriggerMarginPx() const;
     bool magnify() const;
     double magnifyScale() const;
     int magnifyRadius() const;
@@ -157,6 +165,7 @@ public:
     Q_INVOKABLE void setAutohide(bool on);
     Q_INVOKABLE void setAutohideMode(const QString &mode);
     Q_INVOKABLE void setAutohideDelayMs(int ms);
+    Q_INVOKABLE void setAutohideTriggerZone(const QString &zone);
     Q_INVOKABLE void setReserveSpace(bool on);
     Q_INVOKABLE void setIconBgShape(const QString &shape);
     Q_INVOKABLE void setIconBgOpacity(double v);

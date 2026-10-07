@@ -68,6 +68,15 @@ void SettingsController::applyAutohideMode(const QString &mode)
         m_config->setAutohideMode(mode);
 }
 
+void SettingsController::applyAutohideTriggerZone(const QString &zone)
+{
+    static const QStringList valid{
+        QStringLiteral("edge"), QStringLiteral("dock"),
+    };
+    if (valid.contains(zone))
+        m_config->setAutohideTriggerZone(zone);
+}
+
 void SettingsController::applyReserveSpace(bool on)
 {
     m_config->setReserveSpace(on);

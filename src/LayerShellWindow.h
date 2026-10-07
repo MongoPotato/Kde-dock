@@ -76,6 +76,12 @@ public:
     Q_INVOKABLE void setRevealed(bool revealed);
     bool revealed() const { return m_revealed; }
 
+    // Which stretch of the anchored edge the reveal strip covers while
+    // hidden, in window coordinates along that edge. A length of 0 or less
+    // means the whole edge (the default). Lets the dock be revealed only by
+    // a cursor near the icons instead of anywhere along the screen edge.
+    Q_INVOKABLE void setRevealSpan(int start, int length);
+
     void setBlurEnabled(bool enabled);
 
     // The dock's rectangle in global screen coordinates.
@@ -143,6 +149,8 @@ private:
     bool m_shellApplied = false;
     bool m_blurEnabled = false;
     bool m_revealed = true;
+    int m_revealSpanStart = 0;
+    int m_revealSpanLength = 0;   // <= 0 = whole edge
 
     // Last region handed to setMask(), so a resize or a reveal that doesn't
     // actually change the input region costs no surface commit.

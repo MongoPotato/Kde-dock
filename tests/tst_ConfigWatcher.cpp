@@ -313,6 +313,63 @@ private slots:
         QCOMPARE(cw.autohideMode(), QStringLiteral("never"));
     }
 
+    // ── autohideTriggerZone ───────────────────────────────────────────────
+
+    // A config predating the setting must reveal the dock as it always did:
+    // from anywhere along the screen edge
+    void test_autohideTriggerZoneDefaultsToEdge()
+    {
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideTriggerZone(), QStringLiteral("edge"));
+        QCOMPARE(cw.autohideTriggerMarginPx(), 48);
+    }
+
+    void test_autohideTriggerZoneReadFromConfig()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohideTriggerZone":"dock","autohideTriggerMarginPx":20})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideTriggerZone(), QStringLiteral("dock"));
+        QCOMPARE(cw.autohideTriggerMarginPx(), 20);
+    }
+
+    // Junk must not leave the reveal area undefined, and a negative margin
+    // must not shrink the zone below the icons themselves
+    void test_autohideTriggerZoneRejectsUnknownValue()
+    {
+        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        QDir().mkpath(configDir);
+        QFile f(configDir + QStringLiteral("/dock.json"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(R"({"autohideTriggerZone":"corner","autohideTriggerMarginPx":-10})");
+        f.close();
+
+        ConfigWatcher cw;
+        QCOMPARE(cw.autohideTriggerZone(), QStringLiteral("edge"));
+        QCOMPARE(cw.autohideTriggerMarginPx(), 0);
+    }
+
+    void test_setAutohideTriggerZone_persists()
+    {
+        ConfigWatcher cw;
+        cw.setAutohideTriggerZone(QStringLiteral("dock"));
+        cw.reload();
+        QCOMPARE(cw.autohideTriggerZone(), QStringLiteral("dock"));
+    }
+
+    void test_resetToDefaults_restoresAutohideTriggerZone()
+    {
+        ConfigWatcher cw;
+        cw.setAutohideTriggerZone(QStringLiteral("dock"));
+        cw.resetToDefaults();
+        QCOMPARE(cw.autohideTriggerZone(), QStringLiteral("edge"));
+    }
+
     // ── layer ─────────────────────────────────────────────────────────────
 
     // Defaults to "top": a dock stacked below ordinary windows is invisible

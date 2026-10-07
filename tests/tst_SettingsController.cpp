@@ -252,6 +252,27 @@ private slots:
         }
     }
 
+    // ── applyAutohideTriggerZone ──────────────────────────────────────────
+
+    void test_applyAutohideTriggerZone_allValidZones()
+    {
+        const QStringList zones{
+            QStringLiteral("dock"), QStringLiteral("edge"),
+        };
+        for (const QString &z : zones) {
+            m_sc->applyAutohideTriggerZone(z);
+            QCOMPARE(m_config->autohideTriggerZone(), z);
+        }
+    }
+
+    // A junk zone must be rejected outright rather than written to the file
+    void test_applyAutohideTriggerZone_rejectsInvalid()
+    {
+        m_sc->applyAutohideTriggerZone(QStringLiteral("dock"));
+        m_sc->applyAutohideTriggerZone(QStringLiteral("nonsense"));
+        QCOMPARE(m_config->autohideTriggerZone(), QStringLiteral("dock"));
+    }
+
     // ── requestOpenSettings ───────────────────────────────────────────────
 
     // Calling requestOpenSettings() must emit the openSettingsRequested signal

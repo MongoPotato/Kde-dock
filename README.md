@@ -154,7 +154,7 @@ apply immediately, no restart needed.
 Open the in-app settings panel via right-click → **Dock settings…** to
 adjust icon size, hover lift/magnify, dock position and opacity, icon
 background shape, blur-behind, adaptive colour tint, and auto-hide (plus
-its hide delay) — or edit `dock.json` directly:
+its hide delay and reveal area) — or edit `dock.json` directly:
 
 ```jsonc
 {
@@ -173,6 +173,12 @@ its hide delay) — or edit `dock.json` directly:
                                //            reaches the screen edge
   "autohideDelayMs": 2500,     // how long after the cursor leaves the icon
                                // bar before the dock slides away (250–10000)
+  "autohideTriggerZone": "edge", // edge | dock — where the cursor reveals
+                               // the hidden dock (and keeps it up):
+                               //   edge — anywhere along the screen edge
+                               //   dock — only over the icons, plus
+                               //          autohideTriggerMarginPx either side
+  "autohideTriggerMarginPx": 48,
   "reserveSpace": true,        // keep other windows out of the dock's strip.
                                // Ignored while autohide is on — an auto-hiding
                                // dock never reserves space.

@@ -58,8 +58,26 @@ Item {
     // cursor having left the bar.
     readonly property int zoneSlack: config.hoverLiftPx + 24
 
+    // ── Trigger zone along the edge ───────────────────────────────────────
+    // "edge": the whole screen edge reveals the dock and keeps it up.
+    // "dock": only the stretch the icons occupy, widened by a margin either
+    // side, so the rest of the edge stays free for whatever is behind it.
+    readonly property bool isHorizontal: config.position === "bottom"
+                                      || config.position === "top"
+    readonly property bool triggerOnDockOnly: config.autohideTriggerZone === "dock"
+    readonly property real edgeLength: isHorizontal ? width : height
+    readonly property real triggerSpanStart: triggerOnDockOnly
+        ? Math.max(0, dockBar.contentStart - config.autohideTriggerMarginPx) : 0
+    readonly property real triggerSpanEnd: triggerOnDockOnly
+        ? Math.min(edgeLength, dockBar.contentStart + dockBar.contentLength
+                               + config.autohideTriggerMarginPx)
+        : edgeLength
+
     // pos is in root-item coordinates, which match window coordinates.
     function pointerInDockZone(pos) {
+        const along = isHorizontal ? pos.x : pos.y
+        if (along < triggerSpanStart || along > triggerSpanEnd)
+            return false
         switch (config.position) {
         case "top":   return pos.y <= stripThickness + zoneSlack
         case "left":  return pos.x <= stripThickness + zoneSlack
@@ -67,6 +85,20 @@ Item {
         default:      return pos.y >= height - stripThickness - zoneSlack
         }
     }
+
+    // The hidden dock's reveal strip has to match the zone, or a cursor at
+    // the far end of the edge would still bring the dock up.
+    function applyRevealSpan() {
+        if (typeof dockWindow === "undefined") return
+        if (triggerOnDockOnly)
+            dockWindow.setRevealSpan(Math.floor(triggerSpanStart),
+                                     Math.ceil(triggerSpanEnd - triggerSpanStart))
+        else
+            dockWindow.setRevealSpan(0, 0)
+    }
+    onTriggerOnDockOnlyChanged: applyRevealSpan()
+    onTriggerSpanStartChanged:  applyRevealSpan()
+    onTriggerSpanEndChanged:    applyRevealSpan()
 
     // Single source of truth for the auto-hide decision. Called on every
     // pointer, menu and config change — never assumes an event was reliable.
@@ -105,6 +137,7 @@ Item {
         // Match the real Wayland surface to the initial visibility so a
         // dock that starts auto-hidden doesn't block the screen edge.
         if (typeof dockWindow !== "undefined") {
+            root.applyRevealSpan()
             dockWindow.setRevealed(root.dockVisible)
             // Everything that places a menu or tooltip is measured from this
             // rectangle, so it's worth being able to see it in --debug.
@@ -115,6 +148,7 @@ Item {
     onDockVisibleChanged: {
         console.log("[kdock autohide] dockVisible →", dockVisible,
                     "  mode:", config.autohideMode,
+                    "  zone:", config.autohideTriggerZone,
                     "  active:", autohideActive,
                     "  dockHeld:", dockHeld)
         if (dockVisible) {
