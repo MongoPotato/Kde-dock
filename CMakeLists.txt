@@ -11,7 +11,9 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/.local" CACHE PATH "Install prefix" FORCE)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick WaylandClient DBus)
+# Qt 6.4 is the oldest release the code and QML are written against (it is
+# what Ubuntu 24.04 / Kubuntu ship); newer-only QML properties are avoided.
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Quick WaylandClient DBus)
 # GuiPrivate provides qpa/qplatformnativeinterface.h for Wayland surface access.
 # It is REQUIRED at link time but some distros (Ubuntu 22.04) omit the CMake
 # config file from their qt6-base-private-dev package.  We request it as an

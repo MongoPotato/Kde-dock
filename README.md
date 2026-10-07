@@ -45,11 +45,14 @@ Build-time (Debian/Ubuntu package names — adjust for your distro):
 | `cmake` (≥ 3.20)          | Build system                              |
 | `pkg-config`              | Library discovery                         |
 | `g++` / `gcc`             | C++17 compiler                            |
-| `qt6-base-dev`            | Qt6 Core/Gui/DBus                         |
+| `qt6-base-dev` (Qt ≥ 6.4) | Qt6 Core/Gui/DBus                         |
 | `qt6-declarative-dev`     | Qt Quick / QML                            |
 | `qt6-wayland-dev`         | Qt WaylandClient (layer-shell surface)    |
 | `qt6-base-private-dev`   | Private Gui headers (Wayland native iface)|
 | `libwayland-dev`          | `wayland-client`/`wayland-scanner`        |
+
+Qt **6.4 or newer** is required (CMake refuses older versions). Ubuntu
+24.04, Fedora and Arch all ship a new enough Qt.
 
 Install on **Ubuntu/Kubuntu**:
 

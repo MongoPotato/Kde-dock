@@ -46,10 +46,17 @@ Window {
             anchors { top: parent.top; left: parent.left; right: parent.right }
             height: 46
             color: "#1e1e30"
-            // Square bottom corners to join the body seamlessly
-            radius: 0
-            topLeftRadius:  12
-            topRightRadius: 12
+            // Rounded top corners to match the window. Per-corner radii
+            // (topLeftRadius/topRightRadius) only exist from Qt 6.7, so round
+            // all four and square the bottom ones off with a filler strip —
+            // that works on Qt 6.4 and later.
+            radius: 12
+
+            Rectangle {
+                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                height: parent.radius
+                color:  parent.color
+            }
 
             Text {
                 anchors.centerIn: parent
