@@ -41,9 +41,19 @@ set(SOURCES
     src/SettingsController.cpp
     src/SingleInstance.cpp
     src/AppLibrary.cpp
+    src/WindowPusher.cpp
 )
 
 add_executable(kdock ${SOURCES})
+
+# The KWin script WindowPusher loads into the compositor. Compiled in rather
+# than installed: it is written out and loaded over D-Bus at runtime, so it
+# always matches the binary that talks to it.
+qt_add_resources(kdock "kwin_scripts"
+    PREFIX "/kwin"
+    BASE "data/kwin"
+    FILES data/kwin/windowpusher.js
+)
 
 # Generate Wayland client code from the layer-shell protocol XML. Must be
 # called after add_executable so the target exists.

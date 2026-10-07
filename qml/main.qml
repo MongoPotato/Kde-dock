@@ -9,6 +9,7 @@
 //   iconThemeDetector   → IconThemeDetector*
 //   appLibrary          → AppLibrary*
 //   dockWindow          → LayerShellWindow*
+//   windowPusher        → WindowPusher*
 
 import QtQuick 2.15
 import QtQuick.Controls 2.15
@@ -163,6 +164,9 @@ Item {
             if (typeof dockWindow !== "undefined") dockWindow.setRevealed(true)
         } else {
             hideTimer.stop()
+            // Windows pushed aside for the dock go back as soon as it starts
+            // to leave, not once it has gone.
+            if (typeof windowPusher !== "undefined") windowPusher.setDockRevealed(false)
             // Wait for the slide-out to finish before narrowing the input
             // region back to the reveal strip — doing it early would make the
             // still-visible icons unclickable.
@@ -206,6 +210,10 @@ Item {
         onTriggered: {
             console.log("[kdock autohide] slide-in animation done — hover enabled")
             root._dockAnimating = false
+            // Make room for the dock only once it is fully in. dockVisible,
+            // not true: the dock may already be on its way out again.
+            if (typeof windowPusher !== "undefined")
+                windowPusher.setDockRevealed(root.dockVisible && root.autohideActive)
         }
     }
 

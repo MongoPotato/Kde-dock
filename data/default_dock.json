@@ -48,6 +48,7 @@
   "autohideTriggerZone":     "edge",
   "autohideTriggerMarginPx": 48,
   "reserveSpace":    true,
+  "pushWindows":     false,
   "magnify":         true,
   "magnifyScale":    1.5,
   "magnifyRadius":   120,

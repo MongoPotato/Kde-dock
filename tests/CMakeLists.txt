@@ -10,7 +10,8 @@ enable_testing()
 
 find_package(Qt6 6.4 REQUIRED COMPONENTS Test Core Gui DBus)
 
-# Helper macro: one test file → one binary → registered with ctest
+# Helper macro: one test file → one binary → registered with ctest.
+# KDOCK_TEST_LAUNCHER, if set, is a command the test binary is run under.
 macro(kdock_test NAME)
     add_executable(${NAME} ${ARGN})
     target_include_directories(${NAME} PRIVATE
@@ -21,7 +22,7 @@ macro(kdock_test NAME)
         QML_INSTALL_DIR="${CMAKE_INSTALL_PREFIX}/share/kdock/qml"
     )
     target_link_libraries(${NAME} PRIVATE Qt6::Test Qt6::Core Qt6::Gui Qt6::DBus)
-    add_test(NAME ${NAME} COMMAND ${NAME})
+    add_test(NAME ${NAME} COMMAND ${KDOCK_TEST_LAUNCHER} $<TARGET_FILE:${NAME}>)
     # Use offscreen platform so tests run in headless CI environments
     set_tests_properties(${NAME} PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -65,3 +66,25 @@ kdock_test(tst_SettingsController
     ${CMAKE_SOURCE_DIR}/src/ConfigWatcher.cpp
     ${CMAKE_SOURCE_DIR}/src/IconThemeDetector.cpp
 )
+
+# The long-poll tests need a session bus. Give the test a private one when
+# dbus-run-session is available; without it they skip.
+find_program(DBUS_RUN_SESSION dbus-run-session)
+if(DBUS_RUN_SESSION)
+    set(KDOCK_TEST_LAUNCHER ${DBUS_RUN_SESSION} --)
+endif()
+kdock_test(tst_WindowPusher
+    tst_WindowPusher.cpp
+    ${CMAKE_SOURCE_DIR}/src/WindowPusher.cpp
+)
+unset(KDOCK_TEST_LAUNCHER)
+
+# The KWin script itself, run against a mocked KWin scripting API. Needs
+# Node.js; skipped from the build when it isn't installed.
+find_program(NODE_EXECUTABLE node)
+if(NODE_EXECUTABLE)
+    add_test(NAME tst_windowpusher_js
+             COMMAND ${NODE_EXECUTABLE}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/kwin/tst_windowpusher.js
+                     ${CMAKE_SOURCE_DIR}/data/kwin/windowpusher.js)
+endif()

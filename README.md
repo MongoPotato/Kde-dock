@@ -22,6 +22,9 @@ Latte, but built specifically against Plasma 6's Wayland session using
 - Hover effects: lift, magnify, glow — all configurable.
 - Optional auto-hide, blur-behind, and adaptive colour tinting from the
   active app's icon.
+- Optionally, an auto-hiding dock **pushes windows aside** when it reveals,
+  so it no longer covers status bars, input fields and terminal prompts, and
+  puts them back when it hides.
 - Live config reload — edit `dock.json` and the dock updates without a
   restart.
 - Runs as a systemd user service (or XDG autostart fallback) so it
@@ -35,6 +38,12 @@ JavaScript scripting engine (`org.kde.kwin.Scripting` over DBus) instead: a
 persistent script tracks windows, and small one-shot scripts perform
 activate/close/minimize directly inside KWin. See the comments at the top
 of `src/TaskTracker.cpp` for the full rationale.
+
+Pushing windows aside works the same way: a Wayland client can't move other
+clients' windows, so a second KWin script (`data/kwin/windowpusher.js`,
+compiled into the binary and loaded at runtime, so there is nothing extra to
+install) does the moving. It learns when the dock reveals and hides by
+long-polling kdock over D-Bus. See `src/WindowPusher.h`.
 
 ## Dependencies
 
@@ -157,7 +166,8 @@ apply immediately, no restart needed.
 Open the in-app settings panel via right-click → **Dock settings…** to
 adjust icon size, hover lift/magnify, dock position and opacity, icon
 background shape, blur-behind, adaptive colour tint, and auto-hide (plus
-its hide delay and reveal area) — or edit `dock.json` directly:
+its hide delay and whether it pushes windows aside) — or edit `dock.json`
+directly:
 
 ```jsonc
 {
@@ -185,6 +195,12 @@ its hide delay and reveal area) — or edit `dock.json` directly:
   "reserveSpace": true,        // keep other windows out of the dock's strip.
                                // Ignored while autohide is on — an auto-hiding
                                // dock never reserves space.
+  "pushWindows": false,        // with autohide on: once the dock has slid in,
+                               // move the windows it covers out of its way
+                               // (shrinking them if there's no room), and put
+                               // them back when it hides. A window you move
+                               // or resize in the meantime stays where you
+                               // put it. Fullscreen windows are never touched.
   "magnify": true,
   "magnifyScale": 1.5,
   "background": { "color": "#1a1a2e", "opacity": 0.85, "radius": 14 }
@@ -238,8 +254,12 @@ ctest --test-dir build --output-on-failure
 ```
 
 Tests run headless (`QT_QPA_PLATFORM=offscreen`) and cover `ConfigWatcher`,
-`DockModel`, `IconProvider`, `IconThemeDetector`, `SettingsController`, and
-`TaskTracker` (smoke-tested without a live KWin session).
+`DockModel`, `IconProvider`, `IconThemeDetector`, `SettingsController`,
+`TaskTracker` (smoke-tested without a live KWin session) and `WindowPusher`
+(its D-Bus long-poll runs on a private bus via `dbus-run-session` when that
+is installed). If Node.js is installed, the KWin script that pushes windows
+aside is also run against a mocked KWin scripting API
+(`tests/kwin/tst_windowpusher.js`).
 
 ## Troubleshooting
 
@@ -251,5 +271,10 @@ Tests run headless (`QT_QPA_PLATFORM=offscreen`) and cover `ConfigWatcher`,
   $XDG_SESSION_TYPE` should say `wayland`) — KDock's window tracking
   requires KWin's scripting DBus interface, which isn't reachable the same
   way under X11.
+- **"Push windows when revealing" does nothing**: the settings panel says
+  why under the switch. It needs KWin's scripting D-Bus interface, i.e. a
+  Plasma session; `kdock --debug` logs every state the KWin script applies
+  (`kdock [pusher]: script applied state N (pushed 2)`). Windows move once
+  the dock has finished sliding in; the move itself isn't animated yet.
 - **Service won't start**: `systemctl --user status kdock` and `journalctl
   --user -u kdock -e` for logs.

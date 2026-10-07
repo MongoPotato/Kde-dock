@@ -332,6 +332,39 @@ Window {
                     }
                 }
 
+                // ── Push windows aside ────────────────────────────────────
+                RowLayout { spacing: 12; Layout.fillWidth: true
+                    enabled: config.autohideMode !== "never"
+                    opacity: enabled ? 1.0 : 0.45
+                    ColumnLayout { spacing: 2
+                        Text { text: "Push windows when revealing"; color: "white"; font.pixelSize: 13 }
+                        Text {
+                            // The moving is done inside KWin, so say so when
+                            // that half isn't running.
+                            text: {
+                                if (config.autohideMode === "never")
+                                    return "Only applies while the dock auto-hides"
+                                if (!config.pushWindows)
+                                    return "Move covered windows out of the dock's way"
+                                switch (windowPusher.status) {
+                                case "active":      return "Active — windows make room for the dock"
+                                case "starting":    return "Waiting for the KWin script to start…"
+                                case "unavailable": return "Needs KWin scripting (Plasma session) — not available"
+                                default:            return "Move covered windows out of the dock's way"
+                                }
+                            }
+                            color: config.pushWindows && config.autohideMode !== "never"
+                                   && windowPusher.status === "unavailable" ? "#ffaaaa" : "#888"
+                            font.pixelSize: 11
+                        }
+                    }
+                    Item { Layout.fillWidth: true }
+                    Switch {
+                        checked: config.pushWindows
+                        onToggled: settings.applyPushWindows(checked)
+                    }
+                }
+
                 Rectangle { height: 1; color: "#444466"; Layout.fillWidth: true }
 
                 // ── Icon theme ────────────────────────────────────────────

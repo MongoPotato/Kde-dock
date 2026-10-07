@@ -11,6 +11,8 @@
 //   config              → ConfigWatcher*        live JSON settings
 //   settings            → SettingsController*   validated settings mutations
 //   iconThemeDetector   → IconThemeDetector*    KDE theme auto-detection
+//   windowPusher        → WindowPusher*         moves windows out of the
+//                                               revealed dock's way
 
 #include "AppLibrary.h"
 #include "ConfigWatcher.h"
@@ -23,6 +25,7 @@
 #include "SettingsController.h"
 #include "SingleInstance.h"
 #include "TaskTracker.h"
+#include "WindowPusher.h"
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>
@@ -133,6 +136,10 @@ int main(int argc, char *argv[])
 
     SettingsController settingsController(&config, &iconThemeDetector);
 
+    // Before the dock window, so it outlives it: on the way out it has the
+    // KWin script put every pushed window back.
+    WindowPusher windowPusher;
+
     // ContextMenu.qml instantiates this as `LayerPopup`. It has to be
     // registered before any QML is loaded.
     qmlRegisterType<LayerShellPopup>("KDock", 1, 0, "LayerPopup");
@@ -176,6 +183,17 @@ int main(int argc, char *argv[])
     };
     applyDockGeometry();
 
+    // Pushing only makes sense for a dock that comes and goes. The thickness
+    // is the reserved one — what a revealed dock covers, hover lift included.
+    auto applyWindowPusher = [&]() {
+        windowPusher.setEnabled(config.pushWindows() && config.autohide());
+        QScreen *scr = window.screen();
+        windowPusher.setPlacement(scr ? scr->name() : QString(),
+                                  config.position(),
+                                  config.dockReservedThickness());
+    };
+    applyWindowPusher();
+
     // Set an initial window size so the QML root item has geometry before
     // the layer-shell configure callback fires.
     if (QScreen *screen = window.screen()) {
@@ -193,6 +211,7 @@ int main(int argc, char *argv[])
                          window.setBlurEnabled(config.blurEnabled());
                          applyDockGeometry();
                          window.applyGeometryUpdate();
+                         applyWindowPusher();
                      });
 
     // Re-anchor to the right screen whenever KDE's primary screen changes,
@@ -219,6 +238,7 @@ int main(int argc, char *argv[])
         window.reanchorToScreen(target);
         applyDockGeometry();
         window.applyGeometryUpdate();
+        applyWindowPusher();
     });
 
     auto scheduleReanchor = [&]() {
@@ -276,6 +296,7 @@ int main(int argc, char *argv[])
     ctx->setContextProperty(QStringLiteral("iconThemeDetector"), &iconThemeDetector);
     ctx->setContextProperty(QStringLiteral("appLibrary"),        &appLibrary);
     ctx->setContextProperty(QStringLiteral("dockWindow"),        &window);
+    ctx->setContextProperty(QStringLiteral("windowPusher"),      &windowPusher);
 
     // Resolve QML — search in order: installed path, next to exe, CWD
     const QString exeDir = QCoreApplication::applicationDirPath();
@@ -319,6 +340,9 @@ int main(int argc, char *argv[])
                      : "  (reserveSpace off)");
         qDebug("kdock [debug]: interactive : %d px of a %d px window",
                window.interactiveThickness(), window.thickness());
+        qDebug("kdock [debug]: push windows: %s (status: %s)",
+               config.pushWindows() ? "on" : "off",
+               qPrintable(windowPusher.status()));
         qDebug("kdock [debug]: model rows  : %d", dockModel.rowCount());
         qDebug("kdock [debug]: QML path    : %s", qPrintable(qmlPath));
     }

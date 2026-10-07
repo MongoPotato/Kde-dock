@@ -82,6 +82,11 @@ void SettingsController::applyReserveSpace(bool on)
     m_config->setReserveSpace(on);
 }
 
+void SettingsController::applyPushWindows(bool on)
+{
+    m_config->setPushWindows(on);
+}
+
 void SettingsController::applyIconBgShape(const QString &shape)
 {
     static const QStringList valid{

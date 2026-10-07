@@ -202,6 +202,16 @@ private slots:
         QCOMPARE(m_config->autohide(), false);
     }
 
+    // ── applyPushWindows ──────────────────────────────────────────────────
+
+    void test_applyPushWindows_persists()
+    {
+        m_sc->applyPushWindows(true);
+        QCOMPARE(m_config->pushWindows(), true);
+        m_sc->applyPushWindows(false);
+        QCOMPARE(m_config->pushWindows(), false);
+    }
+
     // ── applyAutohideDelay ────────────────────────────────────────────────
 
     // Below the floor must clamp up: a near-zero delay makes an auto-hiding

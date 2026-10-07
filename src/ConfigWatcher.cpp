@@ -329,6 +329,9 @@ QString ConfigWatcher::autohideTriggerZone() const
 int ConfigWatcher::autohideTriggerMarginPx() const
 {
     return qBound(0, m_config.value(QStringLiteral("autohideTriggerMarginPx")).toInt(48), 1000);
+bool ConfigWatcher::pushWindows() const
+{
+    return m_config.value(QStringLiteral("pushWindows")).toBool(false);
 }
 
 bool ConfigWatcher::magnify() const
@@ -451,6 +454,13 @@ void ConfigWatcher::setReserveSpace(bool on)
     save();
 }
 
+void ConfigWatcher::setPushWindows(bool on)
+{
+    m_config[QStringLiteral("pushWindows")] = on;
+    emit configChanged();
+    save();
+}
+
 void ConfigWatcher::setIconBgShape(const QString &shape)
 {
     QJsonObject ib = m_config.value(QStringLiteral("iconBackground")).toObject();
@@ -540,6 +550,7 @@ void ConfigWatcher::resetToDefaults()
         {QStringLiteral("autohideTriggerZone"),     QStringLiteral("edge")},
         {QStringLiteral("autohideTriggerMarginPx"), 48},
         {QStringLiteral("reserveSpace"),    true},
+        {QStringLiteral("pushWindows"),     false},
         {QStringLiteral("magnify"),         true},
         {QStringLiteral("magnifyScale"),    1.5},
         {QStringLiteral("magnifyRadius"),   120},

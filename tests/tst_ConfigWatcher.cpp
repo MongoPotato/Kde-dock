@@ -216,6 +216,31 @@ private slots:
         QCOMPARE(cw.reserveSpace(), false);
     }
 
+    // ── pushWindows ───────────────────────────────────────────────────────
+
+    // Off by default: moving the user's windows around is opt-in
+    void test_pushWindowsDefaultsOff()
+    {
+        ConfigWatcher cw;
+        QCOMPARE(cw.pushWindows(), false);
+    }
+
+    void test_setPushWindows_persists()
+    {
+        ConfigWatcher cw;
+        cw.setPushWindows(true);
+        cw.reload();
+        QCOMPARE(cw.pushWindows(), true);
+    }
+
+    void test_resetToDefaults_turnsPushWindowsOff()
+    {
+        ConfigWatcher cw;
+        cw.setPushWindows(true);
+        cw.resetToDefaults();
+        QCOMPARE(cw.pushWindows(), false);
+    }
+
     // ── autohideMode ──────────────────────────────────────────────────────
 
     // A config written before dodge existed must keep behaving as it did:
