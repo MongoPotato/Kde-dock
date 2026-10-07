@@ -5,7 +5,7 @@
 #   1. Check for required build deps (cmake, qt6-base-dev, etc.)
 #   2. cmake -B build -DCMAKE_INSTALL_PREFIX=$HOME/.local
 #   3. cmake --build build -j$(nproc)
-#   4. cmake --install build
+#   4. cmake --build build --target install
 #   5. Copy default_dock.json to ~/.config/kdock/dock.json if not present
 #   6. Create ~/.config/kdock/icons/ directory
 #   7. Install systemd user unit to ~/.config/systemd/user/kdock.service
@@ -56,11 +56,42 @@ if [[ ${#MISSING[@]} -gt 0 ]]; then
     exit 1
 fi
 
+# ── Disk space check ───────────────────────────────────────────────────────
+# The compiler writes temp files to $TMPDIR (default /tmp), which is often a
+# small tmpfs. When it fills up, CMake misreports this as a "broken" compiler.
+MIN_FREE_MB=500
+check_space() {
+    local dir="$1" label="$2" free_mb
+    free_mb=$(df -Pk "$dir" 2>/dev/null | awk 'NR==2 {print int($4/1024)}')
+    if [[ -n "$free_mb" && "$free_mb" -lt "$MIN_FREE_MB" ]]; then
+        echo "ERROR: Only ${free_mb} MB free in $label ($dir); need at least ${MIN_FREE_MB} MB."
+        return 1
+    fi
+}
+
+SPACE_OK=true
+check_space "${TMPDIR:-/tmp}" "temp directory" || SPACE_OK=false
+check_space "." "build directory" || SPACE_OK=false
+if ! $SPACE_OK; then
+    echo "Free up some space, or point the compiler at a roomier temp dir:"
+    echo "  mkdir -p ~/.cache/tmp && TMPDIR=~/.cache/tmp ./install.sh"
+    exit 1
+fi
+
 # ── Build ──────────────────────────────────────────────────────────────────
 echo "==> Building KDock..."
+# A configure that failed part-way (e.g. disk full) can leave a cache where
+# CMake could not detect the binary format. That forces a relink step at
+# install time, which breaks with "cannot find .../CMakeRelink.dir/kdock".
+if [[ -f build/CMakeCache.txt ]] && grep -q '^CMAKE_EXECUTABLE_FORMAT:[A-Z]*=Unknown' build/CMakeCache.txt; then
+    echo "    Stale build cache detected — removing build/ and reconfiguring."
+    run rm -rf build
+fi
 run cmake -B build -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release
 run cmake --build build -j"$(nproc)"
-run cmake --install build
+# Use the install target rather than `cmake --install`: it runs the
+# preinstall/relink step first if the generator needs one.
+run cmake --build build --target install
 
 # ── Config directory ───────────────────────────────────────────────────────
 echo "==> Setting up config directory..."

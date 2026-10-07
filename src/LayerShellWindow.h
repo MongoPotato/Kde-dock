@@ -9,12 +9,15 @@
 //
 // Key design:
 //   Qt::BypassWindowManagerHint prevents Qt's Wayland QPA from applying
-//   the xdg-shell protocol to the window. The window is created as a bare
-//   wl_surface, which we then assign the wlr-layer-shell role.
+//   the xdg-shell protocol to the window (only while
+//   QT_WAYLAND_USE_BYPASSWINDOWMANAGERHINT is set — main() sets it). The
+//   window is created as a bare wl_surface, which we then assign the
+//   wlr-layer-shell role.
 //   On X11/XWayland the flag creates an override-redirect window that we
 //   position at the screen edge manually.
 
 #include <QPoint>
+#include <QPointer>
 #include <QQuickView>
 #include <QRect>
 #include <QRegion>
@@ -94,8 +97,15 @@ public:
     // changes or the screen the dock was on gets unplugged. Layer-shell binds
     // a surface to one wl_output for life, so on Wayland this tears down and
     // recreates the layer surface against the new screen's output; on X11
-    // it's just a geometry re-apply. No-op if already on this screen.
+    // it's a geometry re-apply, done every time since the screen itself may
+    // have moved. On Wayland, a no-op if the live layer surface is already
+    // bound to this screen. Refuses Qt's placeholder screen (no
+    // output to bind to) and waits for a real one instead. Also used for the
+    // initial placement, before the window is first shown.
     void reanchorToScreen(QScreen *targetScreen);
+
+    // Called from the layer surface's C `closed` callback.
+    void handleLayerSurfaceClosed(zwlr_layer_surface_v1 *surface);
 
     // Public so the C-style Wayland registry callback can write to it
     zwlr_layer_shell_v1 *m_layerShell = nullptr;
@@ -103,8 +113,14 @@ public:
 signals:
     void dockScreenRectChanged();
 
+    // The compositor closed the layer surface, typically because the output
+    // it was bound to was disconnected. The dock is now invisible until it is
+    // re-anchored to a screen that still exists.
+    void layerSurfaceClosed();
+
 protected:
     void showEvent(QShowEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
 
 private:
@@ -134,4 +150,20 @@ private:
     bool m_maskApplied = false;
 
     zwlr_layer_surface_v1 *m_layerSurface = nullptr;
+
+    // The screen whose output m_layerSurface is actually bound to — not
+    // screen(), which Qt reassigns by itself when that screen is unplugged,
+    // while the surface stays bound to the dead output. Null when the
+    // surface was created without an output. m_surfaceClosed is set once the
+    // compositor has closed the surface; it is dead from then on.
+    QPointer<QScreen> m_boundScreen;
+    bool m_surfaceClosed = false;
+
+    // The screen reanchorToScreen() last asked for. The X11 fallback places
+    // the window from this rather than screen(): XCB re-derives screen() from
+    // the window's position, so a fresh window at (0,0) "is" on whatever
+    // monitor holds the origin no matter what setScreen() said, and after an
+    // unplug screen() names the laptop while the window is still out where
+    // the monitor was.
+    QPointer<QScreen> m_targetScreen;
 };

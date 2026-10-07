@@ -6,6 +6,7 @@
 #include "LayerShellGlobal.h"
 
 #include <QGuiApplication>
+#include <QHideEvent>
 #include <QRegion>
 #include <QResizeEvent>
 #include <QScreen>
@@ -43,10 +44,20 @@ static void layerSurfaceConfigure(void *data, zwlr_layer_surface_v1 *surface,
     }
 }
 
-static void layerSurfaceClosed(void *data, zwlr_layer_surface_v1 *)
+static void layerSurfaceClosed(void *data, zwlr_layer_surface_v1 *surface)
 {
+    // The compositor sends this when the output the dock is bound to goes
+    // away — e.g. the external monitor was unplugged. This used to close()
+    // the window, and since the dock is the app's only window that quit
+    // kdock outright (exit code 0, so systemd's Restart=on-failure didn't
+    // bring it back either): the laptop screen was left without a dock.
+    // Report it instead and let the owner move the dock to a live screen.
     auto *self = static_cast<LayerShellWindow *>(data);
-    QMetaObject::invokeMethod(self, &LayerShellWindow::close, Qt::QueuedConnection);
+    qInfo("kdock [surface]: compositor closed the layer surface "
+          "(its output probably went away)");
+    QMetaObject::invokeMethod(self, [self, surface]() {
+        self->handleLayerSurfaceClosed(surface);
+    }, Qt::QueuedConnection);
 }
 
 static const zwlr_layer_surface_v1_listener s_layerSurfaceListener = {
@@ -132,6 +143,21 @@ void LayerShellWindow::showEvent(QShowEvent *event)
 #endif
 }
 
+void LayerShellWindow::hideEvent(QHideEvent *event)
+{
+    // QtWayland destroys the wl_surface on hide and makes a fresh one on the
+    // next show, so the layer surface has to go with it. Clearing
+    // m_shellApplied makes that next show build a new one.
+    if (m_layerSurface) {
+        zwlr_layer_surface_v1_destroy(m_layerSurface);
+        m_layerSurface = nullptr;
+    }
+    m_boundScreen = nullptr;
+    m_surfaceClosed = false;
+    m_shellApplied = false;
+    QQuickView::hideEvent(event);
+}
+
 void LayerShellWindow::setBlurEnabled(bool enabled)
 {
     m_blurEnabled = enabled;
@@ -150,11 +176,9 @@ void LayerShellWindow::setupWaylandLayerSurface()
         ni->nativeResourceForWindow("wl_surface", this));
     if (!surface) return;
 
-    wl_output *output = nullptr;
-    if (screen()) {
-        output = static_cast<wl_output *>(
-            ni->nativeResourceForScreen("wl_output", screen()));
-    }
+    // Null only for Qt's placeholder screen; the compositor then picks an
+    // output itself, and the next real screen change re-binds the dock.
+    wl_output *output = LayerShellGlobal::outputFor(screen());
 
     // The dock defaults to the TOP layer, in front of ordinary windows — a
     // dock behind them can't be seen over a maximised window, which makes
@@ -166,6 +190,8 @@ void LayerShellWindow::setupWaylandLayerSurface()
         layerEnum(m_layer),
         "kdock");
     if (!m_layerSurface) return;
+    m_boundScreen = output ? screen() : nullptr;
+    m_surfaceClosed = false;
 
     uint32_t anchorBits = 0;
     if (m_anchor == QStringLiteral("bottom")) {
@@ -225,7 +251,9 @@ void LayerShellWindow::setupWaylandLayerSurface()
 
 void LayerShellWindow::applyX11Geometry()
 {
-    QScreen *scr = screen() ? screen() : QGuiApplication::primaryScreen();
+    QScreen *scr = m_targetScreen ? m_targetScreen.data()
+                 : screen()       ? screen()
+                                  : QGuiApplication::primaryScreen();
     if (!scr) return;
 
     // Changing flags recreates the native window on XCB, which drops the
@@ -389,25 +417,57 @@ void LayerShellWindow::setRevealed(bool revealed)
     applyInputMask();
 }
 
+void LayerShellWindow::handleLayerSurfaceClosed(zwlr_layer_surface_v1 *surface)
+{
+    // A close for a surface that has since been replaced is stale news.
+    if (surface != m_layerSurface) return;
+    m_surfaceClosed = true;
+    emit layerSurfaceClosed();
+}
+
 void LayerShellWindow::reanchorToScreen(QScreen *targetScreen)
 {
-    if (!targetScreen || screen() == targetScreen) return;
-
-    setScreen(targetScreen);
+    if (!targetScreen) return;
 
     if (m_isWayland && m_layerShell) {
-        if (m_layerSurface) {
-            zwlr_layer_surface_v1_destroy(m_layerSurface);
-            m_layerSurface = nullptr;
+        if (!LayerShellGlobal::outputFor(targetScreen)) {
+            qInfo("kdock [surface]: no real output to move to yet; waiting "
+                  "for a screen to appear");
+            return;
         }
-        // setupWaylandLayerSurface() re-reads screen() for the wl_output, so
-        // it picks up targetScreen and rebinds the layer-shell role there.
-        setupWaylandLayerSurface();
+        // Compare against the screen the surface is bound to, not screen():
+        // when a monitor is unplugged Qt moves the window to another screen
+        // by itself, and the surface left on the dead output would pass as
+        // "already there".
+        if (m_layerSurface && !m_surfaceClosed && m_boundScreen == targetScreen)
+            return;
+    }
+    // No early return on X11: the window sits at absolute coordinates, and
+    // when its monitor is unplugged Qt moves it to the remaining screen
+    // without moving it — screen() already reads "laptop" while the window
+    // is still out where the monitor used to be. Re-applying the geometry is
+    // cheap and is the only thing that brings it back.
+
+    qInfo("kdock [surface]: moving dock to screen '%s'",
+          qPrintable(targetScreen->name()));
+    m_targetScreen = targetScreen;
+
+    if (m_isWayland && m_layerShell) {
+        // A wl_surface that already has a buffer can't be given a new layer
+        // surface (the protocol's already_constructed error), so destroying
+        // just the role and re-requesting it on the same surface isn't
+        // enough. Cycle the window instead: hide drops the wl_surface (and,
+        // via hideEvent, the layer surface), show creates a fresh wl_surface
+        // and showEvent binds it to targetScreen's wl_output.
+        const bool wasVisible = isVisible();
+        if (wasVisible) hide();
+        setScreen(targetScreen);
+        if (wasVisible) show();
     } else {
+        setScreen(targetScreen);
         applyX11Geometry();
+        applyInputMask();
     }
 
-    // Recreating the surface reset its input region to "everything".
-    applyInputMask();
     emit dockScreenRectChanged();
 }
