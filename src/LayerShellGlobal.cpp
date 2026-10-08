@@ -13,6 +13,17 @@
 
 #include <cstring>
 
+// zwlr_layer_surface_v1.get_popup takes an xdg_popup, so the generated
+// protocol code refers to xdg_popup_interface. QtWayland has its own copy but
+// keeps it private, and kdock never sends get_popup (its menus are layer
+// surfaces of their own), so a bare description is all that is needed: it
+// only names the type for libwayland's argument checking. It can't simply be
+// left out of the protocol file instead — see the note at the top of
+// data/wlr-layer-shell-unstable-v1.xml.
+extern "C" const struct wl_interface xdg_popup_interface = {
+    "xdg_popup", 6, 0, nullptr, 0, nullptr,
+};
+
 namespace {
 
 struct Binding {
@@ -90,7 +101,11 @@ wl_surface *surfaceFor(QWindow *window)
 {
     QPlatformNativeInterface *ni = QGuiApplication::platformNativeInterface();
     if (!ni || !window) return nullptr;
-    return static_cast<wl_surface *>(ni->nativeResourceForWindow("wl_surface", window));
+    // The key is "surface" — QtWayland (6.4 through 6.8 at least) knows no
+    // other. Asking for "wl_surface" is silently answered with null, so the
+    // dock never got a layer surface on native Wayland and fell back to a
+    // role-less window. Like "output" below.
+    return static_cast<wl_surface *>(ni->nativeResourceForWindow("surface", window));
 }
 
 wl_output *outputFor(QScreen *screen)

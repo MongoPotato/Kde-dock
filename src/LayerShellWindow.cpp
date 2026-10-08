@@ -192,8 +192,7 @@ void LayerShellWindow::setupWaylandLayerSurface()
     QPlatformNativeInterface *ni = QGuiApplication::platformNativeInterface();
     if (!ni) return;
 
-    auto *surface = static_cast<wl_surface *>(
-        ni->nativeResourceForWindow("wl_surface", this));
+    wl_surface *surface = LayerShellGlobal::surfaceFor(this);
     if (!surface) return;
 
     // Null only for Qt's placeholder screen; the compositor then picks an
@@ -353,8 +352,7 @@ void LayerShellWindow::applyGeometryUpdate()
     QPlatformNativeInterface *ni = QGuiApplication::platformNativeInterface();
     if (!ni) return;
 
-    auto *surface = static_cast<wl_surface *>(
-        ni->nativeResourceForWindow("wl_surface", this));
+    wl_surface *surface = LayerShellGlobal::surfaceFor(this);
     if (!surface) return;
 
     // The anchor has to be re-sent too: it used to be set only when the surface
