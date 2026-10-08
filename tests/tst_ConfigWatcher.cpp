@@ -55,6 +55,18 @@ private slots:
         QCOMPARE(cw.padding(), 12);
     }
 
+    // Verify that every edge round-trips and anything else falls back to bottom
+    void test_positionValidation()
+    {
+        ConfigWatcher cw;
+        for (const char *edge : {"top", "left", "right", "bottom"}) {
+            cw.setPosition(QString::fromLatin1(edge));
+            QCOMPARE(cw.position(), QString::fromLatin1(edge));
+        }
+        cw.setPosition(QStringLiteral("diagonal"));
+        QCOMPARE(cw.position(), QStringLiteral("bottom"));
+    }
+
     // Verify that an unknown JSON key is silently ignored (forward compatibility)
     void test_ignoresUnknownKeys()
     {

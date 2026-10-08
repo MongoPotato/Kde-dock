@@ -166,6 +166,7 @@ int main(int argc, char *argv[])
     // Auto-hide reserves nothing: a dock that gets out of the way by itself
     // has no business permanently carving out the screen edge.
     auto applyDockGeometry = [&]() {
+        window.setAnchor(config.position());
         // An auto-hiding dock reserves nothing: it gets out of the way by
         // itself, so permanently carving out the screen edge would be wrong.
         const bool reserving = config.reserveSpace() && !config.autohide();
