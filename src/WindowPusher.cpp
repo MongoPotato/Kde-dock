@@ -25,6 +25,7 @@
 #include <utility>
 
 static const QString kScriptName = QStringLiteral("kdock-windowpusher");
+static const QString kEffectName = QStringLiteral("kdock_pushslide");
 
 // How often a held poll is answered even though nothing changed. The script
 // treats 15 s of silence as "kdock is gone", so this has to stay well below.
@@ -33,6 +34,10 @@ static constexpr int kKeepAliveMs = 10000;
 // How long to wait for the script to confirm it has put every window back
 // before unloading it anyway.
 static constexpr int kRestoreTimeoutMs = 1000;
+
+// How long the effect takes to slide a window (see its main.js), plus a
+// little slack.
+static constexpr int kSlideMs = 300;
 
 static QString scriptFilePath()
 {
@@ -155,8 +160,14 @@ QString WindowPusher::pollState(const QString &knownSerial)
     // pile up.
     answerPendingPolls();
 
-    if (knownSerial != QString::number(m_serial) || !calledFromDBus())
+    if (!calledFromDBus())
         return stateJson();
+    if (knownSerial != QString::number(m_serial)) {
+        // The script is behind and will act on this reply: the effect needs
+        // its heads-up first, as in bumpSerial().
+        notifyEffect();
+        return stateJson();
+    }
 
     setDelayedReply(true);
     m_pendingPolls.append(message());
@@ -173,10 +184,18 @@ void WindowPusher::acknowledge(const QString &serial, const QString &summary)
     m_acknowledgedSerial = acked;
     qDebug("kdock [pusher]: script applied state %d (%s)", acked, qPrintable(summary));
 
-    // The script has put everything back; it is safe to unload now.
+    // The script has put everything back; it is safe to unload now. With
+    // the effect loaded, let the windows finish sliding back first.
     if (!m_enabled && m_scriptLoaded && acked >= m_serial) {
         m_unloadTimer.stop();
-        unloadScript();
+        if (m_animated) {
+            QTimer::singleShot(kSlideMs, this, [this]() {
+                if (!m_enabled)
+                    unloadScript();
+            });
+        } else {
+            unloadScript();
+        }
     }
 }
 
@@ -185,6 +204,9 @@ void WindowPusher::acknowledge(const QString &serial, const QString &summary)
 void WindowPusher::bumpSerial()
 {
     ++m_serial;
+    // Only worth a heads-up if the script will actually hear about it now.
+    if (!m_pendingPolls.isEmpty())
+        notifyEffect();
     answerPendingPolls();
 }
 
@@ -257,9 +279,80 @@ void WindowPusher::loadScript()
     }
     m_scriptLoaded = true;
     m_acknowledgedSerial = -1;
+    loadEffect();
     m_scripting->call(QStringLiteral("start"));
     qDebug("kdock [pusher]: KWin script loaded from '%s'", qPrintable(path));
     setStatus(QStringLiteral("starting"));
+}
+
+// Optional: without the effect (not installed, compositing off) windows
+// simply jump, exactly as in phase 1.
+void WindowPusher::loadEffect()
+{
+    if (!m_effects) {
+        m_effects = new QDBusInterface(
+            QStringLiteral("org.kde.KWin"),
+            QStringLiteral("/Effects"),
+            QStringLiteral("org.kde.kwin.Effects"),
+            QDBusConnection::sessionBus(),
+            this);
+    }
+    if (!m_effects->isValid())
+        return;
+
+    // Someone may have enabled it in System Settings; leave that alone.
+    const QDBusMessage loadedReply = m_effects->call(QStringLiteral("isEffectLoaded"), kEffectName);
+    const bool alreadyLoaded = loadedReply.type() == QDBusMessage::ReplyMessage
+                            && !loadedReply.arguments().isEmpty()
+                            && loadedReply.arguments().constFirst().toBool();
+    if (alreadyLoaded) {
+        m_animated = true;
+        m_ownsEffect = false;
+    } else {
+        const QDBusMessage reply = m_effects->call(QStringLiteral("loadEffect"), kEffectName);
+        m_animated = reply.type() == QDBusMessage::ReplyMessage
+                  && !reply.arguments().isEmpty()
+                  && reply.arguments().constFirst().toBool();
+        m_ownsEffect = m_animated;
+    }
+    if (m_animated) {
+        qDebug("kdock [pusher]: KWin effect '%s' loaded — windows will slide",
+               qPrintable(kEffectName));
+    } else {
+        qInfo("kdock [pusher]: KWin effect '%s' not available (not installed, or "
+              "compositing is off) — windows will move without animating",
+              qPrintable(kEffectName));
+    }
+    emit statusChanged();
+}
+
+void WindowPusher::unloadEffect()
+{
+    if (m_ownsEffect && m_effects && m_effects->isValid())
+        m_effects->call(QStringLiteral("unloadEffect"), kEffectName);
+    const bool wasAnimated = m_animated;
+    m_animated = false;
+    m_ownsEffect = false;
+    if (wasAnimated)
+        emit statusChanged();
+}
+
+// Tells the effect that the script is about to move windows. Sent before
+// the state itself: both go from us to KWin over the same connection, so
+// D-Bus delivers them in this order and the effect is listening by the time
+// the script acts. Fire-and-forget, no reply is waited for.
+void WindowPusher::notifyEffect()
+{
+    if (!m_animated || !m_scriptLoaded)
+        return;
+    QDBusMessage poke = QDBusMessage::createMethodCall(
+        QStringLiteral("org.kde.KWin"),
+        QStringLiteral("/Effects"),
+        QStringLiteral("org.kde.kwin.Effects"),
+        QStringLiteral("reconfigureEffect"));
+    poke << kEffectName;
+    poke.setAutoStartService(false);
+    QDBusConnection::sessionBus().send(poke);
 }
 
 void WindowPusher::unloadScript()
@@ -268,6 +361,7 @@ void WindowPusher::unloadScript()
     if (!m_scriptLoaded)
         return;
     m_scriptLoaded = false;
+    unloadEffect();
     if (m_scripting && m_scripting->isValid())
         m_scripting->call(QStringLiteral("unloadScript"), kScriptName);
     QFile::remove(scriptFilePath());

@@ -77,9 +77,15 @@ kdock_test(tst_WindowPusher
     tst_WindowPusher.cpp
     ${CMAKE_SOURCE_DIR}/src/WindowPusher.cpp
 )
+# loadScript() writes the script out from the resources before KWin loads it.
+qt_add_resources(tst_WindowPusher "kwin_scripts"
+    PREFIX "/kwin"
+    BASE "${CMAKE_SOURCE_DIR}/data/kwin"
+    FILES ${CMAKE_SOURCE_DIR}/data/kwin/windowpusher.js
+)
 unset(KDOCK_TEST_LAUNCHER)
 
-# The KWin script itself, run against a mocked KWin scripting API. Needs
+# The KWin script and effect themselves, run against mocked KWin APIs. Needs
 # Node.js; skipped from the build when it isn't installed.
 find_program(NODE_EXECUTABLE node)
 if(NODE_EXECUTABLE)
@@ -87,4 +93,8 @@ if(NODE_EXECUTABLE)
              COMMAND ${NODE_EXECUTABLE}
                      ${CMAKE_CURRENT_SOURCE_DIR}/kwin/tst_windowpusher.js
                      ${CMAKE_SOURCE_DIR}/data/kwin/windowpusher.js)
+    add_test(NAME tst_pushslide_js
+             COMMAND ${NODE_EXECUTABLE}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/kwin/tst_pushslide.js
+                     ${CMAKE_SOURCE_DIR}/data/kwin/kdock_pushslide/contents/code/main.js)
 endif()

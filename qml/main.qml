@@ -162,6 +162,12 @@ Item {
             // Widen the input region back to the dock band immediately so the
             // icons are clickable as soon as they're on screen.
             if (typeof dockWindow !== "undefined") dockWindow.setRevealed(true)
+            // When pushed windows slide (KWin effect loaded), they slide up
+            // together with the dock. Otherwise they jump, which is less
+            // jarring once the dock is already in: see animDoneTimer.
+            if (typeof windowPusher !== "undefined" && windowPusher.animated
+                && root.autohideActive)
+                windowPusher.setDockRevealed(true)
         } else {
             hideTimer.stop()
             // Windows pushed aside for the dock go back as soon as it starts
@@ -210,8 +216,9 @@ Item {
         onTriggered: {
             console.log("[kdock autohide] slide-in animation done — hover enabled")
             root._dockAnimating = false
-            // Make room for the dock only once it is fully in. dockVisible,
-            // not true: the dock may already be on its way out again.
+            // Without the slide effect, make room only once the dock is fully
+            // in (with it, this was done as it started). dockVisible, not
+            // true: the dock may already be on its way out again.
             if (typeof windowPusher !== "undefined")
                 windowPusher.setDockRevealed(root.dockVisible && root.autohideActive)
         }

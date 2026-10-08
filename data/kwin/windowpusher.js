@@ -21,6 +21,9 @@
 //              has moved or resized it in the meantime, in which case it is
 //              left alone.
 // Geometry is committed once per reveal/hide, never animated frame by frame.
+// Making that one move slide is the kdock_pushslide effect's job (see
+// data/kwin/kdock_pushslide); this script doesn't know or care whether it
+// is loaded.
 
 var SERVICE   = 'org.kde.kdock';
 var PATH      = '/WindowPusher';

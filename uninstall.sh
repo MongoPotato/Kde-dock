@@ -10,6 +10,7 @@ echo "==> Removing files..."
 rm -f "$HOME/.local/bin/kdock"
 rm -f "$HOME/.config/systemd/user/kdock.service"
 rm -f "$HOME/.config/autostart/kdock.desktop"
+rm -rf "$HOME/.local/share/kwin/effects/kdock_pushslide"
 systemctl --user daemon-reload 2>/dev/null || true
 
 echo "  Config and icons left in $HOME/.config/kdock/ — remove manually if desired."

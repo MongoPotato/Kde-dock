@@ -17,6 +17,10 @@
 #include <QDBusPendingReply>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMutex>
+#include <QThread>
+
+#include <atomic>
 
 #include "../src/WindowPusher.h"
 
@@ -24,6 +28,122 @@ static QJsonObject parse(const QString &json)
 {
     return QJsonDocument::fromJson(json.toUtf8()).object();
 }
+
+// ── A stand-in for KWin ──────────────────────────────────────────────────────
+//
+// Serves just enough of org.kde.KWin (/Scripting and /Effects) for
+// WindowPusher to load its script and effect. Lives on its own thread: the
+// pusher's calls into KWin block the test's main thread.
+
+class FakeScripting : public QObject {
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.kde.kwin.Scripting")
+public slots:
+    Q_SCRIPTABLE int loadScript(const QString &, const QString &) { return 0; }
+    Q_SCRIPTABLE void start() {}
+    Q_SCRIPTABLE bool unloadScript(const QString &) { return true; }
+};
+
+class FakeEffects : public QObject {
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.kde.kwin.Effects")
+public:
+    std::atomic<bool> installed { true };
+    std::atomic<bool> preloaded { false };
+    std::atomic<int> loads { 0 };
+    std::atomic<int> unloads { 0 };
+    std::atomic<int> headsUps { 0 };
+public slots:
+    Q_SCRIPTABLE bool loadEffect(const QString &) { ++loads; return installed; }
+    Q_SCRIPTABLE void unloadEffect(const QString &) { ++unloads; }
+    Q_SCRIPTABLE bool isEffectLoaded(const QString &) const { return preloaded; }
+    Q_SCRIPTABLE void reconfigureEffect(const QString &) { ++headsUps; }
+};
+
+// Polls the pusher the way the KWin script does — from KWin's own bus
+// connection, which is what makes D-Bus ordering apply between the effect's
+// heads-up and the state. Records how many heads-ups the effect had
+// received by the time each reply arrived.
+class FakeScriptPoller : public QObject {
+    Q_OBJECT
+public:
+    FakeScriptPoller(QDBusConnection connection, FakeEffects *effects)
+        : m_connection(connection), m_effects(effects) {}
+
+    std::atomic<int> replies { 0 };
+    std::atomic<int> headsUpsAtLastReply { -1 };
+
+    QString lastState() const { QMutexLocker lock(&m_mutex); return m_lastState; }
+
+    void poll(const QString &knownSerial)
+    {
+        QMetaObject::invokeMethod(this, [this, knownSerial]() {
+            QDBusMessage call = QDBusMessage::createMethodCall(
+                QDBusConnection::sessionBus().baseService(),
+                QStringLiteral("/WindowPusher"),
+                QStringLiteral("org.kde.kdock.WindowPusher"),
+                QStringLiteral("pollState"));
+            call << knownSerial;
+            auto *watcher = new QDBusPendingCallWatcher(m_connection.asyncCall(call), this);
+            connect(watcher, &QDBusPendingCallWatcher::finished, this,
+                    [this](QDBusPendingCallWatcher *w) {
+                headsUpsAtLastReply = m_effects->headsUps.load();
+                {
+                    QMutexLocker lock(&m_mutex);
+                    m_lastState = QDBusPendingReply<QString>(*w).value();
+                }
+                ++replies;
+                w->deleteLater();
+            });
+        });
+    }
+
+private:
+    QDBusConnection m_connection;
+    FakeEffects *m_effects;
+    mutable QMutex m_mutex;
+    QString m_lastState;
+};
+
+class FakeKWin {
+public:
+    FakeKWin()
+        : m_connection(QDBusConnection::connectToBus(QDBusConnection::SessionBus,
+                                                     QStringLiteral("fake-kwin")))
+        , poller(m_connection, &effects)
+    {
+        scripting.moveToThread(&m_thread);
+        effects.moveToThread(&m_thread);
+        poller.moveToThread(&m_thread);
+        m_thread.start();
+        m_connection.registerObject(QStringLiteral("/Scripting"), &scripting,
+                                    QDBusConnection::ExportScriptableSlots);
+        m_connection.registerObject(QStringLiteral("/Effects"), &effects,
+                                    QDBusConnection::ExportScriptableSlots);
+        registered = m_connection.registerService(QStringLiteral("org.kde.KWin"));
+    }
+
+    ~FakeKWin()
+    {
+        m_connection.unregisterService(QStringLiteral("org.kde.KWin"));
+        m_connection.unregisterObject(QStringLiteral("/Scripting"));
+        m_connection.unregisterObject(QStringLiteral("/Effects"));
+        m_thread.quit();
+        m_thread.wait();
+        QDBusConnection::disconnectFromBus(QStringLiteral("fake-kwin"));
+    }
+
+    bool registered = false;
+
+private:
+    QDBusConnection m_connection;
+    QThread m_thread;
+
+public:
+    FakeScripting scripting;
+    FakeEffects effects;
+    FakeScriptPoller poller;
+};
 
 class TestWindowPusher : public QObject {
     Q_OBJECT
@@ -184,6 +304,106 @@ private slots:
         QVERIFY(secondDone.wait(2000));
         first->deleteLater();
         second->deleteLater();
+    }
+
+    // ── The slide effect (phase 2) ────────────────────────────────────────
+
+    // The effect comes and goes with the script, and the dock knows whether
+    // windows will slide.
+    void test_effectLoadedAndUnloadedWithScript()
+    {
+        if (!QDBusConnection::sessionBus().isConnected())
+            QSKIP("No session bus");
+        FakeKWin kwin;
+        QVERIFY(kwin.registered);
+        WindowPusher pusher;
+        pusher.setEnabled(true);
+        QCOMPARE(pusher.status(), QStringLiteral("starting"));
+        QVERIFY(pusher.isAnimated());
+        QCOMPARE(kwin.effects.loads.load(), 1);
+
+        pusher.setEnabled(false);
+        QCOMPARE(pusher.status(), QStringLiteral("off"));
+        QVERIFY(!pusher.isAnimated());
+        QCOMPARE(kwin.effects.unloads.load(), 1);
+    }
+
+    // Enabled by the user in System Settings: use it, but don't unload it.
+    void test_effectAlreadyLoadedIsLeftLoaded()
+    {
+        if (!QDBusConnection::sessionBus().isConnected())
+            QSKIP("No session bus");
+        FakeKWin kwin;
+        QVERIFY(kwin.registered);
+        kwin.effects.preloaded = true;
+        WindowPusher pusher;
+        pusher.setEnabled(true);
+        QVERIFY(pusher.isAnimated());
+        QCOMPARE(kwin.effects.loads.load(), 0);
+        pusher.setEnabled(false);
+        QCOMPARE(kwin.effects.unloads.load(), 0);
+    }
+
+    // Not installed: windows jump, as in phase 1, and nothing else changes.
+    void test_missingEffectMeansNoAnimation()
+    {
+        if (!QDBusConnection::sessionBus().isConnected())
+            QSKIP("No session bus");
+        FakeKWin kwin;
+        QVERIFY(kwin.registered);
+        kwin.effects.installed = false;
+        WindowPusher pusher;
+        pusher.setEnabled(true);
+        QCOMPARE(pusher.status(), QStringLiteral("starting"));
+        QVERIFY(!pusher.isAnimated());
+
+        pusher.setPlacement(QStringLiteral("eDP-1"), QStringLiteral("bottom"), 80);
+        pusher.setDockRevealed(true);
+        QTest::qWait(100);
+        QCOMPARE(kwin.effects.headsUps.load(), 0);
+        pusher.setEnabled(false);
+        QCOMPARE(kwin.effects.unloads.load(), 0);
+    }
+
+    // The whole point of the heads-up: the effect must have it before the
+    // script hears about the new state, or the windows jump.
+    void test_headsUpArrivesBeforeHeldState()
+    {
+        if (!QDBusConnection::sessionBus().isConnected())
+            QSKIP("No session bus");
+        FakeKWin kwin;
+        QVERIFY(kwin.registered);
+        WindowPusher pusher;
+        pusher.setEnabled(true);
+        QVERIFY(pusher.isAnimated());
+
+        kwin.poller.poll(QString::number(pusher.serial()));
+        QTRY_COMPARE(pusher.status(), QStringLiteral("active"));
+        QTest::qWait(100);
+        QCOMPARE(kwin.poller.replies.load(), 0);   // held
+        QCOMPARE(kwin.effects.headsUps.load(), 0);
+
+        pusher.setDockRevealed(true);
+        QTRY_COMPARE(kwin.poller.replies.load(), 1);
+        QCOMPARE(kwin.poller.headsUpsAtLastReply.load(), 1);
+        QVERIFY(parse(kwin.poller.lastState()).value(QStringLiteral("revealed")).toBool());
+    }
+
+    // Same when the script was between polls and picks the state up late.
+    void test_headsUpArrivesBeforeImmediateState()
+    {
+        if (!QDBusConnection::sessionBus().isConnected())
+            QSKIP("No session bus");
+        FakeKWin kwin;
+        QVERIFY(kwin.registered);
+        WindowPusher pusher;
+        pusher.setEnabled(true);
+        pusher.setDockRevealed(true);              // nobody polling yet
+        QCOMPARE(kwin.effects.headsUps.load(), 0);
+
+        kwin.poller.poll(QStringLiteral("0"));
+        QTRY_COMPARE(kwin.poller.replies.load(), 1);
+        QCOMPARE(kwin.poller.headsUpsAtLastReply.load(), 1);
     }
 
     // Shutting the dock down must not leave a poll hanging until the bus

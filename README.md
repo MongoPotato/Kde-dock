@@ -45,6 +45,13 @@ compiled into the binary and loaded at runtime, so there is nothing extra to
 install) does the moving. It learns when the dock reveals and hides by
 long-polling kdock over D-Bus. See `src/WindowPusher.h`.
 
+The script moves each window once. A small KWin effect,
+`kdock_pushslide` (installed to `~/.local/share/kwin/effects/`), makes that
+one move slide in step with the dock: a GPU translation of what the window
+already shows, so the app doesn't redraw and nothing runs between reveals.
+kdock loads it into KWin while the feature is on; you don't need to enable
+it in System Settings. Without it windows still move, they just jump.
+
 ## Dependencies
 
 Build-time (Debian/Ubuntu package names — adjust for your distro):
@@ -131,6 +138,10 @@ cmake --build build -j"$(nproc)"
 ./build/kdock            # run directly without installing
 ```
 
+Without installing, pushed windows jump rather than slide: KWin only loads
+effects from `share/kwin/effects`, so the `kdock_pushslide` effect has to be
+installed (`cmake --install build`) to be found.
+
 ### Uninstalling
 
 ```bash
@@ -138,7 +149,7 @@ cmake --build build -j"$(nproc)"
 ```
 
 Stops and disables the systemd service, and removes the installed binary,
-service file, and autostart entry. Your config and custom icons in
+service file, autostart entry and KWin slide effect. Your config and custom icons in
 `~/.config/kdock/` are left untouched — remove that directory yourself if
 you want a clean slate.
 
@@ -195,8 +206,8 @@ its hide delay, reveal area and whether it pushes windows aside) — or edit
   "reserveSpace": true,        // keep other windows out of the dock's strip.
                                // Ignored while autohide is on — an auto-hiding
                                // dock never reserves space.
-  "pushWindows": false,        // with autohide on: once the dock has slid in,
-                               // move the windows it covers out of its way
+  "pushWindows": false,        // with autohide on: as the dock slides in,
+                               // slide the windows it covers out of its way
                                // (shrinking them if there's no room), and put
                                // them back when it hides. A window you move
                                // or resize in the meantime stays where you
@@ -258,8 +269,8 @@ Tests run headless (`QT_QPA_PLATFORM=offscreen`) and cover `ConfigWatcher`,
 `TaskTracker` (smoke-tested without a live KWin session) and `WindowPusher`
 (its D-Bus long-poll runs on a private bus via `dbus-run-session` when that
 is installed). If Node.js is installed, the KWin script that pushes windows
-aside is also run against a mocked KWin scripting API
-(`tests/kwin/tst_windowpusher.js`).
+aside, and the effect that makes them slide, are also run against mocked
+KWin APIs (`tests/kwin/`).
 
 ## Troubleshooting
 
@@ -274,7 +285,11 @@ aside is also run against a mocked KWin scripting API
 - **"Push windows when revealing" does nothing**: the settings panel says
   why under the switch. It needs KWin's scripting D-Bus interface, i.e. a
   Plasma session; `kdock --debug` logs every state the KWin script applies
-  (`kdock [pusher]: script applied state N (pushed 2)`). Windows move once
-  the dock has finished sliding in; the move itself isn't animated yet.
+  (`kdock [pusher]: script applied state N (pushed 2)`).
+- **Pushed windows jump instead of sliding**: the settings panel says
+  "slide effect not installed". Install kdock (`./install.sh`) so the
+  `kdock_pushslide` effect lands in `~/.local/share/kwin/effects/`, and
+  check that compositing is on. Without the effect, windows move once the
+  dock has finished sliding in.
 - **Service won't start**: `systemctl --user status kdock` and `journalctl
   --user -u kdock -e` for logs.

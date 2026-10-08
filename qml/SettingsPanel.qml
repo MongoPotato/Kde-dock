@@ -347,7 +347,9 @@ Window {
                                 if (!config.pushWindows)
                                     return "Move covered windows out of the dock's way"
                                 switch (windowPusher.status) {
-                                case "active":      return "Active — windows make room for the dock"
+                                case "active":      return windowPusher.animated
+                                                           ? "Active — windows slide out of the dock's way"
+                                                           : "Active — windows jump (slide effect not installed)"
                                 case "starting":    return "Waiting for the KWin script to start…"
                                 case "unavailable": return "Needs KWin scripting (Plasma session) — not available"
                                 default:            return "Move covered windows out of the dock's way"

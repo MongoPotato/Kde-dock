@@ -1,0 +1,17 @@
+{
+    "KPackageStructure": "KWin/Effect",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "KDock contributors"
+            }
+        ],
+        "Category": "Appearance",
+        "Description": "Slides windows smoothly when KDock pushes them out of the way of the auto-hidden dock. Loaded by KDock while \"Push windows when revealing\" is on; there is nothing to enable here.",
+        "EnabledByDefault": false,
+        "Id": "kdock_pushslide",
+        "License": "GPL",
+        "Name": "KDock push slide"
+    },
+    "X-Plasma-API": "javascript"
+}

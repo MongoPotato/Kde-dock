@@ -106,6 +106,11 @@ endif()
 install(TARGETS kdock DESTINATION bin)
 install(DIRECTORY qml/ DESTINATION share/kdock/qml)
 install(FILES data/default_dock.json DESTINATION share/kdock)
+# The KWin effect that makes pushed windows slide. Unlike the window pusher
+# script it can't be handed to KWin from memory: KWin only loads effects it
+# finds under share/kwin/effects. WindowPusher loads it at runtime; it is
+# never enabled in the user's KWin configuration.
+install(DIRECTORY data/kwin/kdock_pushslide DESTINATION share/kwin/effects)
 
 option(BUILD_TESTS "Build the Qt Test suite" OFF)
 if(BUILD_TESTS)

@@ -19,6 +19,14 @@
 // The state is: enabled, revealed, and where the dock sits (output name,
 // edge, thickness). It is deliberately all the script needs: it finds the
 // output itself, so dock and compositor never have to agree on coordinates.
+//
+// Animation (phase 2) is a separate KWin effect, kdock_pushslide, installed
+// with the dock (data/kwin/kdock_pushslide). The script still moves each
+// window once; the effect makes that move slide. It is loaded and unloaded
+// together with the script, and is optional: without it windows jump.
+// Effects can't talk D-Bus either, so before every state change this class
+// pokes the effect (reconfigureEffect), which tells it the script is about
+// to move windows. See the effect's main.js.
 
 #include <QDBusContext>
 #include <QDBusMessage>
@@ -38,6 +46,10 @@ class WindowPusher : public QObject, protected QDBusContext {
     // "starting"    — the script is loaded but hasn't checked in yet
     // "active"      — the script is running and talking to us
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
+    // True while the kdock_pushslide effect is loaded, i.e. pushed windows
+    // slide rather than jump. The dock then pushes as soon as it starts to
+    // slide in, so both move together.
+    Q_PROPERTY(bool animated READ isAnimated NOTIFY statusChanged)
 
 public:
     explicit WindowPusher(QObject *parent = nullptr);
@@ -51,12 +63,13 @@ public:
     // Where the dock sits. thickness is the band it covers when revealed.
     void setPlacement(const QString &outputName, const QString &edge, int thickness);
 
-    // Called from QML: true once the dock has finished sliding in, false as
-    // soon as it starts sliding out.
+    // Called from QML: true as the dock starts sliding in when animated, else
+    // once it is all the way in; false as soon as it starts sliding out.
     Q_INVOKABLE void setDockRevealed(bool revealed);
     bool isDockRevealed() const { return m_revealed; }
 
     QString status() const;
+    bool isAnimated() const { return m_animated; }
 
     // The state as the script receives it — exposed for tests.
     QString stateJson() const;
@@ -80,9 +93,15 @@ private:
     void answerPendingPolls();
     void loadScript();
     void unloadScript();
+    void loadEffect();
+    void unloadEffect();
+    void notifyEffect();
     void setStatus(const QString &status);
 
     QDBusInterface *m_scripting = nullptr;
+    QDBusInterface *m_effects = nullptr;
+    bool m_animated = false;
+    bool m_ownsEffect = false;   // we loaded it, so we unload it
     bool m_objectRegistered = false;
     bool m_scriptLoaded = false;
 
