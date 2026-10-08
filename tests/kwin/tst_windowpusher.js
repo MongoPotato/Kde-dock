@@ -49,6 +49,7 @@ let nextId = 1;
 
 class FakeWindow {
     constructor(kwin, props) {
+        this._kwin = kwin;
         Object.assign(this, {
             internalId: `{window-${nextId++}}`,
             resourceClass: 'org.kde.kate',
@@ -83,11 +84,30 @@ class FakeWindow {
         }
     }
     get frameGeometry() { return { ...this._geometry }; }
+    // Like KWin with a Wayland client: a pure move applies on the spot; a
+    // resize is a configure request the app answers later, and the answer
+    // places the window where that request said — even if the geometry was
+    // set again (at the old size) in the meantime.
     set frameGeometry(rect) {
-        this.geometryWrites.push({ ...rect });
-        this._geometry = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        const r = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        this.geometryWrites.push({ ...r });
+        const resize = r.width !== this._geometry.width || r.height !== this._geometry.height;
+        if (resize && this._kwin.asyncResize) {
+            this.pendingConfigure = r;
+            return;
+        }
+        this._geometry = r;
+        if (resize)
+            this._kwin.unanswered.push(this);
         if (this.onWrite)
             this.onWrite();
+        this.frameGeometryChanged.emit();
+    }
+    // The app answers its pending resize request (async mode).
+    answer() {
+        assert.ok(this.pendingConfigure, 'nothing to answer');
+        this._geometry = this.pendingConfigure;
+        this.pendingConfigure = null;
         this.frameGeometryChanged.emit();
     }
     // What the user (or a shortcut) does, as opposed to the script.
@@ -122,6 +142,10 @@ function makeKWin(options = {}) {
         timers: [],
         areas: options.areas || {},
         logs: [],
+        // Resizes are answered by the app before the next dock state
+        // arrives, unless asyncResize: then only when a test says so.
+        asyncResize: !!options.asyncResize,
+        unanswered: [],
     };
     kwin.currentDesktop = kwin.desktops[0];
 
@@ -177,6 +201,8 @@ function makeKWin(options = {}) {
         return polls[polls.length - 1];
     };
     kwin.send = (state) => {
+        for (const w of kwin.unanswered.splice(0))
+            w.frameGeometryChanged.emit();
         const poll = kwin.pendingPoll();
         assert.ok(poll, 'the script should be polling');
         poll.answered = true;
@@ -507,6 +533,74 @@ test('never pulls a window toward the dock', () => {
     kwin.start();
     kwin.send({ revealed: true });
     assert.deepEqual(w.frameGeometry, at(0, 10, 800, 990));
+});
+
+// ── Resizes the app hasn't answered yet ─────────────────────────────────────
+
+test('hidden before the app answered the shrink: restored once it does', () => {
+    const kwin = makeKWin({ asyncResize: true });
+    const w = kwin.addWindow({ geometry: at(0, 0, 1920, 1080), maximizeMode: 3 });
+    kwin.start();
+    kwin.send({ revealed: true });
+    assert.deepEqual(w.pendingConfigure, at(0, 0, 1920, 1000));
+    kwin.send({ revealed: false });            // the dock left already
+    w.answer();                                // ... and now the app shrinks
+    assert.deepEqual(w.frameGeometry, at(0, 0, 1920, 1000));
+    // The restore went out after the answer, as a request of its own.
+    assert.deepEqual(w.pendingConfigure, at(0, 0, 1920, 1080));
+    w.answer();
+    assert.deepEqual(w.frameGeometry, at(0, 0, 1920, 1080));
+});
+
+test('a window moved and shrunk is restored too when the answer comes late', () => {
+    const kwin = makeKWin({ asyncResize: true });
+    const w = kwin.addWindow({ geometry: at(0, 30, 600, 1050) });     // bottom 1080
+    kwin.start();
+    kwin.send({ revealed: true });
+    kwin.send({ revealed: false });
+    w.answer();
+    w.answer();
+    assert.deepEqual(w.frameGeometry, at(0, 30, 600, 1050));
+});
+
+test('revealed again before the answer: the stale restore is dropped', () => {
+    const kwin = makeKWin({ asyncResize: true });
+    const w = kwin.addWindow({ geometry: at(0, 0, 1920, 1080), maximizeMode: 3 });
+    kwin.start();
+    kwin.send({ revealed: true });
+    kwin.send({ revealed: false });
+    kwin.send({ revealed: true });
+    w.answer();
+    assert.deepEqual(w.frameGeometry, at(0, 0, 1920, 1000));
+    assert.equal(w.pendingConfigure, null, 'no restore went out');
+    kwin.timers.forEach((t) => t.active && t !== kwin.timers[0] && t.fire());
+    assert.deepEqual(w.frameGeometry, at(0, 0, 1920, 1000));
+});
+
+test('an app that never answers does not keep a restore waiting forever', () => {
+    const kwin = makeKWin({ asyncResize: true });
+    const w = kwin.addWindow({ geometry: at(0, 0, 1920, 1080), maximizeMode: 3 });
+    kwin.start();
+    kwin.send({ revealed: true });
+    kwin.send({ revealed: false });
+    assert.equal(w.frameGeometryChanged.slots.length, 1, 'waiting for the answer');
+    kwin.timers[kwin.timers.length - 1].fire();
+    assert.equal(w.frameGeometryChanged.slots.length, 0, 'gave up waiting');
+    // Still where it always was (the shrink never happened).
+    assert.deepEqual(w.frameGeometry, at(0, 0, 1920, 1080));
+});
+
+test('a dock moved to another edge: windows go back, then make room there', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(30, 500, 800, 560) });   // bottom 1060, left 30
+    kwin.start();
+    kwin.send({ edge: 'bottom' });
+    assert.deepEqual(w.frameGeometry, at(30, 440, 800, 560));
+    kwin.send({ edge: 'left' });
+    // Back at its own height, and out of the left dock's way.
+    assert.deepEqual(w.frameGeometry, at(80, 500, 800, 560));
+    kwin.send({ edge: 'left', revealed: false });
+    assert.deepEqual(w.frameGeometry, at(30, 500, 800, 560));
 });
 
 // ── Fixed dock: keep windows clear all the time ─────────────────────────────

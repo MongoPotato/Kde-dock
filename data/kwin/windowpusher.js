@@ -50,12 +50,17 @@ var EFFECT_NAME = 'kdock_pushslide';
 // itself (an app insisting on its size) before we stop pushing it.
 var MAX_REPUSHES = 3;
 
+// How long a restore waits for an app to answer an earlier resize before
+// going ahead anyway (see deferRestore()).
+var SETTLE_TIMEOUT_MS = 1000;
+
 var dockState = null;   // last state from the dock, or null when unknown
 var knownSerial = '';   // serial of dockState, echoed back on every poll
 var pollGeneration = 0; // a late reply to an abandoned poll is ignored
 var pushed = {};        // internalId → push record, see pushWindow()
 var applying = false;   // true while we ourselves change a window's state
 var watched = {};       // internalId → connections, while the dock is fixed
+var pendingRestores = {}; // internalId → { cancel }, see deferRestore()
 
 var watchdog = new QTimer();
 watchdog.singleShot = true;
@@ -288,6 +293,9 @@ function pushWindow(w, state, placement, carry) {
     var target = targetFor(w, state, placement);
     if (!target)
         return false;
+    // Pushed again before an earlier restore got to run: that restore is
+    // out of date.
+    cancelPendingRestore(windowKey(w));
 
     var g = rectOf(w.frameGeometry);
     var resized = Math.abs(target.width - g.width) >= 1
@@ -298,25 +306,34 @@ function pushWindow(w, state, placement, carry) {
         target: target,
         resized: resized || (carry ? carry.resized : false),
         touched: false,
+        // A move is applied on the spot; a resize is a request the app
+        // answers later (see deferRestore()).
+        settled: !resized,
         repushes: carry ? carry.repushes : 0,
         connections: [],
     };
     pushed[windowKey(w)] = record;
     watchForTakeover(w, record);
-    watchForDrift(w, record);
+    watchGeometry(w, record);
     setGeometry(w, target);
     return true;
 }
 
-// Next to a fixed dock, a pushed window can end up over it again without
-// anyone touching it: KWin re-fits maximized windows to the work area, an
-// app grows itself. Push it again, keeping the geometry it had before we
-// first moved it. A window that keeps coming back is given up on.
-function watchForDrift(w, record) {
+// The first geometry change after a resize request is the app's answer:
+// from then on the window really is where we put it.
+//
+// Next to a fixed dock, a pushed window can also end up over it again
+// without anyone touching it: KWin re-fits maximized windows to the work
+// area, an app grows itself. Push it again, keeping the geometry it had
+// before we first moved it. A window that keeps coming back is given up on.
+function watchGeometry(w, record) {
     if (!w.frameGeometryChanged || !w.frameGeometryChanged.connect)
         return;
     var onDrift = function () {
-        if (applying || record.touched || w.move || w.resize || !isKeepClear(dockState))
+        if (applying)
+            return;
+        record.settled = true;
+        if (record.touched || w.move || w.resize || !isKeepClear(dockState))
             return;
         if (record.repushes >= MAX_REPUSHES)
             return;
@@ -339,6 +356,66 @@ function restoreWindow(key) {
     var w = record.window;
     forget(key);
     if (!w || w.deleted || record.touched)
+        return false;
+    if (!record.settled) {
+        deferRestore(key, w, record);
+        return true;
+    }
+    return finishRestore(w, record);
+}
+
+function cancelPendingRestore(key) {
+    var pending = pendingRestores[key];
+    if (pending)
+        pending.cancel();
+}
+
+// Restoring a window whose shrink the app hasn't answered yet would be
+// undone by that answer: KWin places the window by the geometry it asked
+// for when it sent the request, so the late answer puts it back where we
+// pushed it, and there it would stay. (And until the answer comes, the
+// window still reports its old geometry, so the restore wouldn't even
+// recognise it as ours.) So wait for the answer, then restore. An app that
+// never answers gets its restore after a timeout anyway.
+function deferRestore(key, w, record) {
+    cancelPendingRestore(key);
+    var done = false;
+    var timer = new QTimer();
+    var onAnswer = function () {
+        if (!applying)
+            finish();
+    };
+    var stop = function () {
+        done = true;
+        timer.stop();
+        try {
+            w.frameGeometryChanged.disconnect(onAnswer);
+        } catch (e) {
+            // The window is already gone.
+        }
+        delete pendingRestores[key];
+    };
+    var finish = function () {
+        if (done)
+            return;
+        stop();
+        finishRestore(w, record);
+    };
+    w.frameGeometryChanged.connect(onAnswer);
+    timer.singleShot = true;
+    timer.interval = SETTLE_TIMEOUT_MS;
+    timer.timeout.connect(finish);
+    timer.start();
+    pendingRestores[key] = {
+        cancel: function () {
+            if (!done)
+                stop();
+        },
+    };
+}
+
+function finishRestore(w, record) {
+    if (!w || w.deleted)
         return false;
 
     // Clients cannot move themselves on Wayland, so a window that is no
