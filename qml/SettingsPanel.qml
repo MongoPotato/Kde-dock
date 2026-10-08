@@ -334,29 +334,29 @@ Window {
 
                 // ── Push windows aside ────────────────────────────────────
                 RowLayout { spacing: 12; Layout.fillWidth: true
-                    enabled: config.autohideMode !== "never"
-                    opacity: enabled ? 1.0 : 0.45
                     ColumnLayout { spacing: 2
-                        Text { text: "Push windows when revealing"; color: "white"; font.pixelSize: 13 }
+                        Text { text: "Push windows out of the dock's way"; color: "white"; font.pixelSize: 13 }
                         Text {
                             // The moving is done inside KWin, so say so when
                             // that half isn't running.
+                            readonly property string whatItDoes:
+                                config.autohideMode === "never"
+                                    ? "Keep windows from going behind the dock"
+                                    : "Make room for the dock while it is shown"
                             text: {
-                                if (config.autohideMode === "never")
-                                    return "Only applies while the dock auto-hides"
                                 if (!config.pushWindows)
-                                    return "Move covered windows out of the dock's way"
+                                    return whatItDoes
                                 switch (windowPusher.status) {
                                 case "active":      return windowPusher.animated
                                                            ? "Active — windows slide out of the dock's way"
                                                            : "Active — windows jump (slide effect not installed)"
                                 case "starting":    return "Waiting for the KWin script to start…"
                                 case "unavailable": return "Needs KWin scripting (Plasma session) — not available"
-                                default:            return "Move covered windows out of the dock's way"
+                                default:            return whatItDoes
                                 }
                             }
-                            color: config.pushWindows && config.autohideMode !== "never"
-                                   && windowPusher.status === "unavailable" ? "#ffaaaa" : "#888"
+                            color: config.pushWindows && windowPusher.status === "unavailable"
+                                   ? "#ffaaaa" : "#888"
                             font.pixelSize: 11
                         }
                     }

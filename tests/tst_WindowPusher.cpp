@@ -198,6 +198,28 @@ private slots:
         QCOMPARE(state.value(QStringLiteral("serial")).toInt(), pusher.serial());
     }
 
+    // A fixed dock is always there, so it always counts as revealed, and
+    // the script is told to keep windows clear rather than make room.
+    void test_keepClearCountsAsRevealed()
+    {
+        WindowPusher pusher;
+        const int start = pusher.serial();
+        pusher.setKeepClear(true);
+        QCOMPARE(pusher.serial(), start + 1);
+        QJsonObject state = parse(pusher.stateJson());
+        QCOMPARE(state.value(QStringLiteral("keepClear")).toBool(), true);
+        QCOMPARE(state.value(QStringLiteral("revealed")).toBool(), true);
+        QCOMPARE(state.value(QStringLiteral("animated")).toBool(), false);
+
+        pusher.setDockRevealed(false);   // what QML says; irrelevant here
+        QCOMPARE(parse(pusher.stateJson()).value(QStringLiteral("revealed")).toBool(), true);
+
+        pusher.setKeepClear(false);
+        state = parse(pusher.stateJson());
+        QCOMPARE(state.value(QStringLiteral("keepClear")).toBool(), false);
+        QCOMPARE(state.value(QStringLiteral("revealed")).toBool(), false);
+    }
+
     // Every change has to reach the script, and only changes may: the
     // script re-polls with the serial it has, and an unchanged serial means
     // "wait".

@@ -22,9 +22,11 @@ Latte, but built specifically against Plasma 6's Wayland session using
 - Hover effects: lift, magnify, glow — all configurable.
 - Optional auto-hide, blur-behind, and adaptive colour tinting from the
   active app's icon.
-- Optionally, an auto-hiding dock **pushes windows aside** when it reveals,
-  so it no longer covers status bars, input fields and terminal prompts, and
-  puts them back when it hides.
+- Optionally, the dock **pushes windows out of its way**, so it never covers
+  status bars, input fields and terminal prompts. An auto-hiding dock makes
+  room while it is shown and gives windows their place back when it hides;
+  a fixed dock keeps windows clear of it all the time, including ones that
+  open later or that you drop onto it.
 - Live config reload — edit `dock.json` and the dock updates without a
   restart.
 - Runs as a systemd user service (or XDG autostart fallback) so it
@@ -206,12 +208,19 @@ its hide delay, reveal area and whether it pushes windows aside) — or edit
   "reserveSpace": true,        // keep other windows out of the dock's strip.
                                // Ignored while autohide is on — an auto-hiding
                                // dock never reserves space.
-  "pushWindows": false,        // with autohide on: as the dock slides in,
-                               // slide the windows it covers out of its way
-                               // (shrinking them if there's no room), and put
-                               // them back when it hides. A window you move
-                               // or resize in the meantime stays where you
-                               // put it. Fullscreen windows are never touched.
+  "pushWindows": false,        // move windows the dock covers out of its way,
+                               // shrinking them if there's no room.
+                               // With autohide: as the dock slides in, and
+                               // back when it hides; a window you move or
+                               // resize in the meantime stays where you put
+                               // it. Fixed dock: all the time — windows that
+                               // open, or that you drop onto the dock, are
+                               // pushed too. Turning it off puts windows back.
+                               // Unlike reserveSpace (which only keeps
+                               // maximized windows and new-window placement
+                               // clear, and only for a layer-shell dock), it
+                               // also moves windows already over the dock.
+                               // Fullscreen windows are never touched.
   "magnify": true,
   "magnifyScale": 1.5,
   "background": { "color": "#1a1a2e", "opacity": 0.85, "radius": 14 }

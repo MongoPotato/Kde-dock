@@ -16,9 +16,17 @@
 // state changes or the keep-alive interval passes. The script reports back
 // through acknowledge() once it has applied a state.
 //
-// The state is: enabled, revealed, and where the dock sits (output name,
-// edge, thickness). It is deliberately all the script needs: it finds the
-// output itself, so dock and compositor never have to agree on coordinates.
+// The state is: enabled, revealed, keepClear, animated, and where the dock
+// sits (output name, edge, thickness). It is deliberately all the script
+// needs: it finds the output itself, so dock and compositor never have to
+// agree on coordinates.
+//
+// Two modes, picked by the dock's visibility setting:
+//   auto-hide  — windows make room while the dock is revealed and get
+//                their place back when it hides.
+//   fixed      — keepClear: the dock is always there, so windows are kept
+//                out from behind it all the time, including ones that open
+//                later or that the user drops onto it.
 //
 // Animation (phase 2) is a separate KWin effect, kdock_pushslide, installed
 // with the dock (data/kwin/kdock_pushslide). The script still moves each
@@ -68,6 +76,11 @@ public:
     Q_INVOKABLE void setDockRevealed(bool revealed);
     bool isDockRevealed() const { return m_revealed; }
 
+    // A fixed (never hiding) dock: keep windows clear of it permanently.
+    // The dock then counts as revealed whatever setDockRevealed() said.
+    void setKeepClear(bool keepClear);
+    bool isKeepClear() const { return m_keepClear; }
+
     QString status() const;
     bool isAnimated() const { return m_animated; }
 
@@ -107,6 +120,7 @@ private:
 
     bool m_enabled = false;
     bool m_revealed = false;
+    bool m_keepClear = false;
     QString m_outputName;
     QString m_edge { QStringLiteral("bottom") };
     int m_thickness = 0;

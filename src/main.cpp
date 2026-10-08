@@ -183,10 +183,12 @@ int main(int argc, char *argv[])
     };
     applyDockGeometry();
 
-    // Pushing only makes sense for a dock that comes and goes. The thickness
-    // is the reserved one — what a revealed dock covers, hover lift included.
+    // An auto-hiding dock pushes windows while it is up; a fixed one keeps
+    // them clear all the time. The thickness is the reserved one — what the
+    // dock covers, hover lift included.
     auto applyWindowPusher = [&]() {
-        windowPusher.setEnabled(config.pushWindows() && config.autohide());
+        windowPusher.setKeepClear(!config.autohide());
+        windowPusher.setEnabled(config.pushWindows());
         QScreen *scr = window.screen();
         windowPusher.setPlacement(scr ? scr->name() : QString(),
                                   config.position(),

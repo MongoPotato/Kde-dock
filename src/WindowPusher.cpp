@@ -121,6 +121,14 @@ void WindowPusher::setPlacement(const QString &outputName, const QString &edge, 
     bumpSerial();
 }
 
+void WindowPusher::setKeepClear(bool keepClear)
+{
+    if (m_keepClear == keepClear)
+        return;
+    m_keepClear = keepClear;
+    bumpSerial();
+}
+
 void WindowPusher::setDockRevealed(bool revealed)
 {
     if (m_revealed == revealed)
@@ -139,7 +147,11 @@ QString WindowPusher::stateJson() const
     const QJsonObject state{
         {QStringLiteral("serial"),    m_serial},
         {QStringLiteral("enabled"),   m_enabled},
-        {QStringLiteral("revealed"),  m_revealed},
+        {QStringLiteral("revealed"),  m_revealed || m_keepClear},
+        {QStringLiteral("keepClear"), m_keepClear},
+        // Whether the slide effect is there to be told about moves the
+        // script makes on its own (a fixed dock's window being dropped on it).
+        {QStringLiteral("animated"),  m_animated},
         {QStringLiteral("output"),    m_outputName},
         {QStringLiteral("edge"),      m_edge},
         {QStringLiteral("thickness"), m_thickness},

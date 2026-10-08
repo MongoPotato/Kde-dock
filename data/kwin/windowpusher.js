@@ -20,6 +20,11 @@
 //   hidden   → each pushed window goes back to where it was, unless the user
 //              has moved or resized it in the meantime, in which case it is
 //              left alone.
+//   keepClear → the dock is fixed (always on screen): the same push, but
+//              kept up for as long as the dock is there. Windows that open,
+//              that the user drops onto the dock, or that come back from
+//              minimized, maximized or fullscreen are pushed too; turning
+//              the feature off puts everything back.
 // Geometry is committed once per reveal/hide, never animated frame by frame.
 // Making that one move slide is the kdock_pushslide effect's job (see
 // data/kwin/kdock_pushslide); this script doesn't know or care whether it
@@ -38,11 +43,19 @@ var WATCHDOG_MS = 15000;
 // Our own windows (dock, menus, settings panel) are never pushed.
 var OWN_RESOURCE_CLASS = 'kdock';
 
+// The effect that makes pushed windows slide (data/kwin/kdock_pushslide).
+var EFFECT_NAME = 'kdock_pushslide';
+
+// How often in a row a pushed window may come back over a fixed dock by
+// itself (an app insisting on its size) before we stop pushing it.
+var MAX_REPUSHES = 3;
+
 var dockState = null;   // last state from the dock, or null when unknown
 var knownSerial = '';   // serial of dockState, echoed back on every poll
 var pollGeneration = 0; // a late reply to an abandoned poll is ignored
 var pushed = {};        // internalId → push record, see pushWindow()
 var applying = false;   // true while we ourselves change a window's state
+var watched = {};       // internalId → connections, while the dock is fixed
 
 var watchdog = new QTimer();
 watchdog.singleShot = true;
@@ -256,35 +269,69 @@ function watchForTakeover(w, record) {
     }
 }
 
-function pushWindow(w, state, placement) {
-    var key = windowKey(w);
-    if (pushed[key] || !isEligible(w, placement.output))
-        return false;
-
+// Where `w` has to go to clear the dock, or null if it is fine where it is
+// (or isn't ours to move).
+function targetFor(w, state, placement) {
+    if (pushed[windowKey(w)] || !isEligible(w, placement.output))
+        return null;
     var g = rectOf(w.frameGeometry);
-    var dock = placement.rect;
-    if (!intersects(g, dock))
-        return false;
-
+    if (!intersects(g, placement.rect))
+        return null;
     var area = rectOf(workspace.clientArea(KWin.MaximizeArea, w));
     var minSize = w.minSize || { width: 0, height: 0 };
-    var target = pushedGeometry(g, dock, area, minSize, state.edge, isSpecialState(w));
+    return pushedGeometry(g, placement.rect, area, minSize, state.edge, isSpecialState(w));
+}
+
+// `carry` continues an earlier push of the same window (see watchForDrift):
+// where it was before we first moved it, and how often it has come back.
+function pushWindow(w, state, placement, carry) {
+    var target = targetFor(w, state, placement);
     if (!target)
         return false;
 
+    var g = rectOf(w.frameGeometry);
+    var resized = Math.abs(target.width - g.width) >= 1
+               || Math.abs(target.height - g.height) >= 1;
     var record = {
         window: w,
-        original: g,
+        original: carry ? carry.original : g,
         target: target,
-        resized: Math.abs(target.width - g.width) >= 1
-              || Math.abs(target.height - g.height) >= 1,
+        resized: resized || (carry ? carry.resized : false),
         touched: false,
+        repushes: carry ? carry.repushes : 0,
         connections: [],
     };
-    pushed[key] = record;
+    pushed[windowKey(w)] = record;
     watchForTakeover(w, record);
+    watchForDrift(w, record);
     setGeometry(w, target);
     return true;
+}
+
+// Next to a fixed dock, a pushed window can end up over it again without
+// anyone touching it: KWin re-fits maximized windows to the work area, an
+// app grows itself. Push it again, keeping the geometry it had before we
+// first moved it. A window that keeps coming back is given up on.
+function watchForDrift(w, record) {
+    if (!w.frameGeometryChanged || !w.frameGeometryChanged.connect)
+        return;
+    var onDrift = function () {
+        if (applying || record.touched || w.move || w.resize || !isKeepClear(dockState))
+            return;
+        if (record.repushes >= MAX_REPUSHES)
+            return;
+        var placement = dockPlacement(dockState);
+        if (!placement || !intersects(rectOf(w.frameGeometry), placement.rect))
+            return;
+        forget(windowKey(w));
+        pushWindow(w, dockState, placement, {
+            original: record.original,
+            resized: record.resized,
+            repushes: record.repushes + 1,
+        });
+    };
+    w.frameGeometryChanged.connect(onDrift);
+    record.connections.push({ signal: w.frameGeometryChanged, slot: onDrift });
 }
 
 function restoreWindow(key) {
@@ -338,6 +385,114 @@ function isRevealed(state) {
     return !!(state && state.enabled && state.revealed);
 }
 
+function isKeepClear(state) {
+    return isRevealed(state) && !!state.keepClear;
+}
+
+// ── Fixed dock: keep windows clear all the time ──────────────────────────
+//
+// Only signals that fire when something actually happens to a window are
+// watched — never its geometry, which changes on every frame of a drag.
+
+// Has the effect (if loaded) slide the window, then pushes it. The effect
+// only animates moves it was told about beforehand; for an auto-hiding dock
+// the dock does the telling, here we do it ourselves, KWin to KWin.
+function slideThenPush(w) {
+    var done = false;
+    var push = function () {
+        if (done)
+            return;
+        done = true;
+        var placement = isKeepClear(dockState) && dockPlacement(dockState);
+        if (placement)
+            pushWindow(w, dockState, placement);
+    };
+    callDBus('org.kde.KWin', '/Effects', 'org.kde.kwin.Effects',
+             'reconfigureEffect', EFFECT_NAME, push);
+    // callDBus drops errors without calling back: never leave the window
+    // sitting on the dock because of that.
+    var fallback = new QTimer();
+    fallback.singleShot = true;
+    fallback.interval = 250;
+    fallback.timeout.connect(push);
+    fallback.start();
+}
+
+// Something happened to `w` that may have put it over the dock.
+function recheck(w, slide) {
+    if (applying || !isKeepClear(dockState))
+        return;
+    var placement = dockPlacement(dockState);
+    if (!placement)
+        return;
+    var key = windowKey(w);
+    var record = pushed[key];
+    if (record) {
+        // Still where we put it: nothing to do.
+        if (!record.touched && samePosition(rectOf(w.frameGeometry), record.target))
+            return;
+        // Moved, maximized, ... by the user: their geometry is the new
+        // starting point, and what turning the feature off returns to.
+        forget(key);
+    }
+    if (!targetFor(w, dockState, placement))
+        return;
+    if (slide && dockState.animated)
+        slideThenPush(w);
+    else
+        pushWindow(w, dockState, placement);
+}
+
+function unwatch(key) {
+    var entry = watched[key];
+    if (!entry)
+        return;
+    for (var i = 0; i < entry.length; i++) {
+        try {
+            entry[i].signal.disconnect(entry[i].slot);
+        } catch (e) {
+            // The window is already gone.
+        }
+    }
+    delete watched[key];
+}
+
+function watchWindow(w) {
+    var key = windowKey(w);
+    if (watched[key] || !w || w.deleted || isOwnWindow(w)
+        || !(w.normalWindow || w.dialog) || !w.moveable)
+        return;
+    var entry = [];
+    var add = function (signal, slot) {
+        if (signal && signal.connect) {
+            signal.connect(slot);
+            entry.push({ signal: signal, slot: slot });
+        }
+    };
+    // Dropped after a drag: slide out of the way rather than jump.
+    add(w.interactiveMoveResizeFinished, function () { recheck(w, true); });
+    var changed = function () { recheck(w, false); };
+    add(w.maximizedChanged, changed);
+    add(w.fullScreenChanged, changed);
+    add(w.minimizedChanged, changed);
+    add(w.tileChanged, changed);
+    add(w.outputChanged, changed);
+    add(w.desktopsChanged, changed);
+    add(w.closed, function () { unwatch(key); });
+    watched[key] = entry;
+}
+
+function watchAll() {
+    var windows = workspace.windowList();
+    for (var i = 0; i < windows.length; i++)
+        watchWindow(windows[i]);
+}
+
+function unwatchAll() {
+    for (var key in watched)
+        unwatch(key);
+}
+
 function samePlacement(a, b) {
     return a && b && a.output === b.output && a.edge === b.edge
         && a.thickness === b.thickness;
@@ -347,6 +502,11 @@ function samePlacement(a, b) {
 function applyState(state) {
     var previous = dockState;
     dockState = state;
+
+    if (isKeepClear(state))
+        watchAll();
+    else
+        unwatchAll();
 
     if (!isRevealed(state))
         return 'restored ' + restoreAll();
@@ -385,6 +545,8 @@ function poll() {
 // Windows that appear, or come into view, while the dock is up get the
 // same treatment as the ones that were there when it revealed.
 workspace.windowAdded.connect(function (w) {
+    if (isKeepClear(dockState))
+        watchWindow(w);
     if (isRevealed(dockState)) {
         var placement = dockPlacement(dockState);
         if (placement)

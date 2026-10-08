@@ -75,8 +75,10 @@ class FakeWindow {
         Object.assign(this, props);
         this._geometry = { ...geometry };
         this.geometryWrites = [];
-        for (const name of ['interactiveMoveResizeStarted', 'maximizedChanged',
-                            'fullScreenChanged', 'outputChanged', 'tileChanged', 'closed']) {
+        for (const name of ['interactiveMoveResizeStarted', 'interactiveMoveResizeFinished',
+                            'maximizedChanged', 'fullScreenChanged', 'minimizedChanged',
+                            'outputChanged', 'desktopsChanged', 'tileChanged', 'closed',
+                            'frameGeometryChanged']) {
             this[name] = new Signal();
         }
     }
@@ -86,11 +88,24 @@ class FakeWindow {
         this._geometry = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
         if (this.onWrite)
             this.onWrite();
+        this.frameGeometryChanged.emit();
     }
     // What the user (or a shortcut) does, as opposed to the script.
     userMoveTo(x, y) {
         this.interactiveMoveResizeStarted.emit();
         this._geometry = { ...this._geometry, x, y };
+    }
+    // A complete drag: start, move, let go.
+    userDrop(x, y) {
+        this.userMoveTo(x, y);
+        this.frameGeometryChanged.emit();
+        this.interactiveMoveResizeFinished.emit();
+    }
+    // A geometry change nobody in particular asked for: KWin re-fitting a
+    // maximized window, an app resizing itself.
+    changeBehindOurBack(rect) {
+        this._geometry = { ...rect };
+        this.frameGeometryChanged.emit();
     }
 }
 
@@ -492,6 +507,202 @@ test('never pulls a window toward the dock', () => {
     kwin.start();
     kwin.send({ revealed: true });
     assert.deepEqual(w.frameGeometry, at(0, 10, 800, 990));
+});
+
+// ── Fixed dock: keep windows clear all the time ─────────────────────────────
+
+const fixed = (state = {}) => ({ keepClear: true, revealed: true, ...state });
+const effectCalls = (kwin) => kwin.dbusCalls.filter((c) => c.method === 'reconfigureEffect');
+
+test('fixed dock: overlapping windows are pushed straight away', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(100, 500, 800, 560) });
+    kwin.start();
+    kwin.send(fixed());
+    assert.deepEqual(w.frameGeometry, at(100, 440, 800, 560));
+});
+
+test('fixed dock: a window dropped onto the dock is pushed off it', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(100, 100, 800, 560) });
+    kwin.start();
+    kwin.send(fixed());
+    w.userDrop(300, 700);                                  // bottom 1260
+    assert.deepEqual(w.frameGeometry, at(300, 440, 800, 560));
+});
+
+test('fixed dock: dropped windows slide when the effect is loaded', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(100, 100, 800, 560) });
+    kwin.start();
+    kwin.send(fixed({ animated: true }));
+    w.userDrop(300, 700);
+    // The effect is told first, KWin to KWin; the move follows its reply.
+    const call = effectCalls(kwin).pop();
+    assert.equal(call.service, 'org.kde.KWin');
+    assert.equal(call.path, '/Effects');
+    assert.deepEqual(call.args, ['kdock_pushslide']);
+    assert.equal(w.frameGeometry.y, 700, 'not yet');
+    call.callback();
+    assert.equal(w.frameGeometry.y, 440);
+    // The fallback timer firing afterwards must not push twice.
+    kwin.timers[kwin.timers.length - 1].fire();
+    assert.equal(w.geometryWrites.length, 1);
+});
+
+test('fixed dock: a lost effect reply does not leave the window on the dock', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(100, 100, 800, 560) });
+    kwin.start();
+    kwin.send(fixed({ animated: true }));
+    w.userDrop(300, 700);
+    kwin.timers[kwin.timers.length - 1].fire();             // no reply came
+    assert.equal(w.frameGeometry.y, 440);
+});
+
+test('fixed dock: a window dropped clear of the dock is left alone', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(100, 100, 800, 560) });
+    kwin.start();
+    kwin.send(fixed());
+    w.userDrop(300, 200);
+    assert.equal(w.geometryWrites.length, 0);
+    assert.equal(effectCalls(kwin).length, 0);
+});
+
+test('fixed dock: a pushed window the user drags elsewhere stays there', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(100, 500, 800, 560) });
+    kwin.start();
+    kwin.send(fixed());
+    w.userDrop(0, 0);
+    assert.deepEqual(w.frameGeometry, at(0, 0, 800, 560));
+    assert.equal(w.geometryWrites.length, 1);
+});
+
+test('fixed dock: turning it off returns windows to where they were', () => {
+    const kwin = makeKWin();
+    const a = kwin.addWindow({ geometry: at(100, 500, 800, 560) });
+    const b = kwin.addWindow({ geometry: at(900, 100, 800, 560) });
+    kwin.start();
+    kwin.send(fixed());
+    b.userDrop(900, 600);       // the user put it there; we moved it up
+    kwin.send(fixed({ enabled: false }));
+    assert.deepEqual(a.frameGeometry, at(100, 500, 800, 560));
+    assert.deepEqual(b.frameGeometry, at(900, 600, 800, 560));
+});
+
+test('fixed dock: an unminimized window that covers the dock is pushed', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(100, 500, 800, 560), minimized: true });
+    kwin.start();
+    kwin.send(fixed());
+    assert.equal(w.geometryWrites.length, 0);
+    w.minimized = false;
+    w.minimizedChanged.emit();
+    assert.equal(w.frameGeometry.y, 440);
+});
+
+test('fixed dock: maximizing shrinks the window above the dock', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(100, 100, 800, 560) });
+    kwin.start();
+    kwin.send(fixed());
+    w.maximizeMode = 3;
+    w._geometry = at(0, 0, 1920, 1080);
+    w.maximizedChanged.emit();
+    assert.deepEqual(w.frameGeometry, at(0, 0, 1920, 1000));
+});
+
+test('fixed dock: KWin re-fitting a maximized window over the dock is undone', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(0, 0, 1920, 1080), maximizeMode: 3 });
+    kwin.start();
+    kwin.send(fixed());
+    assert.equal(w.frameGeometry.height, 1000);
+    w.changeBehindOurBack(at(0, 0, 1920, 1080));            // e.g. a panel changed
+    assert.equal(w.frameGeometry.height, 1000);
+    // And off again restores the real maximized geometry, not the re-fit.
+    kwin.send(fixed({ enabled: false }));
+    assert.deepEqual(w.frameGeometry, at(0, 0, 1920, 1080));
+});
+
+test('fixed dock: an app growing over the dock is pushed again, and restored to its own place', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(100, 500, 800, 560) });
+    kwin.start();
+    kwin.send(fixed());
+    assert.equal(w.frameGeometry.y, 440);
+    w.changeBehindOurBack(at(100, 440, 800, 700));         // grew by itself
+    assert.deepEqual(w.frameGeometry, at(100, 300, 800, 700));
+    kwin.send(fixed({ enabled: false }));
+    // Back to where it was before we ever moved it, at the size it chose.
+    assert.deepEqual(w.frameGeometry, at(100, 500, 800, 700));
+});
+
+test('fixed dock: a pushed window found back on the dock is pushed again', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(100, 500, 800, 560) });
+    kwin.start();
+    kwin.send(fixed());
+    w._geometry = at(100, 600, 800, 560);                  // no signal for it
+    w.minimizedChanged.emit();                             // but something happens
+    assert.equal(w.frameGeometry.y, 440);
+});
+
+test('fixed dock: an app that insists on covering the dock is given up on', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(0, 0, 800, 1080) });
+    // The app answers every resize request by going back to full height,
+    // after the fact, as a real client would.
+    let replies = 0;
+    w.onWrite = () => { replies++; };
+    kwin.start();
+    kwin.send(fixed());
+    for (let guard = 0; replies > 0 && guard < 20; guard++) {
+        replies--;
+        w.changeBehindOurBack({ ...w.frameGeometry, height: 1080 });
+    }
+    assert.equal(w.geometryWrites.length, 4);                // first push + 3 retries
+});
+
+test('fixed dock: no geometry watching for windows that were never pushed', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(100, 100, 800, 560) });
+    kwin.start();
+    kwin.send(fixed());
+    assert.equal(w.frameGeometryChanged.slots.length, 0);
+    assert.equal(w.interactiveMoveResizeFinished.slots.length, 1);
+});
+
+test('fixed dock: windows opened later are watched too', () => {
+    const kwin = makeKWin();
+    kwin.start();
+    kwin.send(fixed());
+    const w = kwin.openWindow({ geometry: at(100, 100, 800, 560) });
+    w.userDrop(100, 800);
+    assert.equal(w.frameGeometry.y, 440);
+});
+
+test('switching the dock to auto-hide stops watching and restores', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(100, 500, 800, 560) });
+    kwin.start();
+    kwin.send(fixed());
+    kwin.send({ keepClear: false, revealed: false });
+    assert.deepEqual(w.frameGeometry, at(100, 500, 800, 560));
+    assert.equal(w.interactiveMoveResizeFinished.slots.length, 0);
+    w.userDrop(100, 700);
+    assert.equal(w.frameGeometry.y, 700);
+});
+
+test('auto-hide: a pushed window that drifts back is not chased', () => {
+    const kwin = makeKWin();
+    const w = kwin.addWindow({ geometry: at(0, 0, 1920, 1080), maximizeMode: 3 });
+    kwin.start();
+    kwin.send({ revealed: true });
+    w.changeBehindOurBack(at(0, 0, 1920, 1080));
+    assert.equal(w.geometryWrites.length, 1);
 });
 
 test('unknown output on a multi-screen setup does nothing', () => {
