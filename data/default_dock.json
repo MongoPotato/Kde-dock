@@ -45,6 +45,8 @@
   "autohide":        false,
   "autohideMode":    "never",
   "autohideDelayMs": 2500,
+  "autohideTriggerZone":     "edge",
+  "autohideTriggerMarginPx": 48,
   "reserveSpace":    true,
   "magnify":         true,
   "magnifyScale":    1.5,

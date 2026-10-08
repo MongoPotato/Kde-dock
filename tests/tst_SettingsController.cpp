@@ -114,11 +114,20 @@ private slots:
 
     // ── applyDockOpacity ──────────────────────────────────────────────────
 
-    // An opacity of 0.0 must be clamped to the minimum of 0.1
+    // A negative opacity must be clamped to 0.0. The floor is 0.0, not 0.1:
+    // a fully transparent bar is allowed ("0 = fully transparent" in the
+    // settings panel).
     void test_applyDockOpacity_clampsBelow()
     {
+        m_sc->applyDockOpacity(-0.5);
+        QCOMPARE(m_config->backgroundOpacity(), 0.0);
+    }
+
+    // 0.0 itself is a valid setting and must be kept as is
+    void test_applyDockOpacity_allowsFullyTransparent()
+    {
         m_sc->applyDockOpacity(0.0);
-        QCOMPARE(m_config->backgroundOpacity(), 0.1);
+        QCOMPARE(m_config->backgroundOpacity(), 0.0);
     }
 
     // An opacity above 1.0 must be clamped to 1.0
@@ -250,6 +259,27 @@ private slots:
             m_sc->applyAutohideMode(m);
             QCOMPARE(m_config->autohideMode(), m);
         }
+    }
+
+    // ── applyAutohideTriggerZone ──────────────────────────────────────────
+
+    void test_applyAutohideTriggerZone_allValidZones()
+    {
+        const QStringList zones{
+            QStringLiteral("dock"), QStringLiteral("edge"),
+        };
+        for (const QString &z : zones) {
+            m_sc->applyAutohideTriggerZone(z);
+            QCOMPARE(m_config->autohideTriggerZone(), z);
+        }
+    }
+
+    // A junk zone must be rejected outright rather than written to the file
+    void test_applyAutohideTriggerZone_rejectsInvalid()
+    {
+        m_sc->applyAutohideTriggerZone(QStringLiteral("dock"));
+        m_sc->applyAutohideTriggerZone(QStringLiteral("nonsense"));
+        QCOMPARE(m_config->autohideTriggerZone(), QStringLiteral("dock"));
     }
 
     // ── requestOpenSettings ───────────────────────────────────────────────

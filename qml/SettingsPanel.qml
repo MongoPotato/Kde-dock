@@ -46,10 +46,17 @@ Window {
             anchors { top: parent.top; left: parent.left; right: parent.right }
             height: 46
             color: "#1e1e30"
-            // Square bottom corners to join the body seamlessly
-            radius: 0
-            topLeftRadius:  12
-            topRightRadius: 12
+            // Rounded top corners to match the window. Per-corner radii
+            // (topLeftRadius/topRightRadius) only exist from Qt 6.7, so round
+            // all four and square the bottom ones off with a filler strip —
+            // that works on Qt 6.4 and later.
+            radius: 12
+
+            Rectangle {
+                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                height: parent.radius
+                color:  parent.color
+            }
 
             Text {
                 anchors.centerIn: parent
@@ -273,6 +280,35 @@ Window {
                             leftPadding: 8; verticalAlignment: Text.AlignVCenter
                         }
                         onActivated: settings.applyAutohideMode(modeKeys[currentIndex])
+                    }
+                }
+
+                // ── Auto-hide trigger zone ────────────────────────────────
+                RowLayout { spacing: 12; Layout.fillWidth: true
+                    enabled: config.autohideMode !== "never"
+                    opacity: enabled ? 1.0 : 0.45
+                    ColumnLayout { spacing: 2
+                        Text { text: "Reveal area"; color: "white"; font.pixelSize: 13 }
+                        Text {
+                            text: config.autohideTriggerZone === "dock"
+                                  ? "Only where the dock is, plus "
+                                    + config.autohideTriggerMarginPx + " px either side"
+                                  : "Anywhere along the screen edge"
+                            color: "#888"; font.pixelSize: 11
+                        }
+                    }
+                    Item { Layout.fillWidth: true }
+                    ComboBox {
+                        Layout.minimumWidth: 190
+                        model: ["Whole screen edge", "Dock area only"]
+                        readonly property var zoneKeys: ["edge", "dock"]
+                        currentIndex: Math.max(0, zoneKeys.indexOf(config.autohideTriggerZone))
+                        background: Rectangle { color: "#3a3a5e"; radius: 4; border.color: "#555577"; border.width: 1 }
+                        contentItem: Text {
+                            text: parent.displayText; color: "white"; font.pixelSize: 13
+                            leftPadding: 8; verticalAlignment: Text.AlignVCenter
+                        }
+                        onActivated: settings.applyAutohideTriggerZone(zoneKeys[currentIndex])
                     }
                 }
 

@@ -45,11 +45,14 @@ Build-time (Debian/Ubuntu package names — adjust for your distro):
 | `cmake` (≥ 3.20)          | Build system                              |
 | `pkg-config`              | Library discovery                         |
 | `g++` / `gcc`             | C++17 compiler                            |
-| `qt6-base-dev`            | Qt6 Core/Gui/DBus                         |
+| `qt6-base-dev` (Qt ≥ 6.4) | Qt6 Core/Gui/DBus                         |
 | `qt6-declarative-dev`     | Qt Quick / QML                            |
 | `qt6-wayland-dev`         | Qt WaylandClient (layer-shell surface)    |
 | `qt6-base-private-dev`   | Private Gui headers (Wayland native iface)|
 | `libwayland-dev`          | `wayland-client`/`wayland-scanner`        |
+
+Qt **6.4 or newer** is required (CMake refuses older versions). Ubuntu
+24.04, Fedora and Arch all ship a new enough Qt.
 
 Install on **Ubuntu/Kubuntu**:
 
@@ -154,7 +157,7 @@ apply immediately, no restart needed.
 Open the in-app settings panel via right-click → **Dock settings…** to
 adjust icon size, hover lift/magnify, dock position and opacity, icon
 background shape, blur-behind, adaptive colour tint, and auto-hide (plus
-its hide delay) — or edit `dock.json` directly:
+its hide delay and reveal area) — or edit `dock.json` directly:
 
 ```jsonc
 {
@@ -173,6 +176,12 @@ its hide delay) — or edit `dock.json` directly:
                                //            reaches the screen edge
   "autohideDelayMs": 2500,     // how long after the cursor leaves the icon
                                // bar before the dock slides away (250–10000)
+  "autohideTriggerZone": "edge", // edge | dock — where the cursor reveals
+                               // the hidden dock (and keeps it up):
+                               //   edge — anywhere along the screen edge
+                               //   dock — only over the icons, plus
+                               //          autohideTriggerMarginPx either side
+  "autohideTriggerMarginPx": 48,
   "reserveSpace": true,        // keep other windows out of the dock's strip.
                                // Ignored while autohide is on — an auto-hiding
                                // dock never reserves space.

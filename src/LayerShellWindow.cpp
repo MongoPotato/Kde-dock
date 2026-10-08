@@ -394,15 +394,26 @@ void LayerShellWindow::applyInputMask()
                    : kRevealStripPx;
     const int strip = qBound(1, band, available);
 
+    // Along the edge: the whole of it, except for the hidden reveal strip
+    // when the trigger zone is limited to the dock itself. Revealed, the band
+    // stays full length so the pointer can still be followed off the icons.
+    const int edgeLength = vertical ? h : w;
+    int spanStart = 0;
+    int spanLength = edgeLength;
+    if (!m_revealed && m_revealSpanLength > 0) {
+        spanStart  = qBound(0, m_revealSpanStart, edgeLength - 1);
+        spanLength = qBound(1, m_revealSpanLength, edgeLength - spanStart);
+    }
+
     QRegion mask;
     if (m_anchor == QStringLiteral("bottom"))
-        mask = QRegion(0, h - strip, w, strip);
+        mask = QRegion(spanStart, h - strip, spanLength, strip);
     else if (m_anchor == QStringLiteral("top"))
-        mask = QRegion(0, 0, w, strip);
+        mask = QRegion(spanStart, 0, spanLength, strip);
     else if (m_anchor == QStringLiteral("left"))
-        mask = QRegion(0, 0, strip, h);
+        mask = QRegion(0, spanStart, strip, spanLength);
     else
-        mask = QRegion(w - strip, 0, strip, h);
+        mask = QRegion(w - strip, spanStart, strip, spanLength);
 
     if (m_maskApplied && m_appliedMask == mask) return;
     m_appliedMask = mask;
@@ -414,6 +425,15 @@ void LayerShellWindow::setRevealed(bool revealed)
 {
     if (m_revealed == revealed) return;
     m_revealed = revealed;
+    applyInputMask();
+}
+
+void LayerShellWindow::setRevealSpan(int start, int length)
+{
+    if (length <= 0) start = length = 0;
+    if (m_revealSpanStart == start && m_revealSpanLength == length) return;
+    m_revealSpanStart  = start;
+    m_revealSpanLength = length;
     applyInputMask();
 }
 

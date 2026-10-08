@@ -58,6 +58,12 @@ Item {
 
     onDockVisibleChanged: console.log("[kdock autohide] DockBar.dockVisible →", dockVisible)
 
+    // Where the icons sit along the dock edge, in DockBar coordinates (which
+    // are the window's: the bar fills it, and its slide transform only moves
+    // it across the edge). Drives the "dock" auto-hide trigger zone.
+    readonly property real contentStart:  isHorizontal ? itemRow.x     : itemColumn.y
+    readonly property real contentLength: isHorizontal ? itemRow.width : itemColumn.height
+
     implicitWidth:  isHorizontal ? itemRow.implicitWidth     + config.padding * 2
                                  : config.dockVisualThickness
     implicitHeight: isHorizontal ? config.dockVisualThickness

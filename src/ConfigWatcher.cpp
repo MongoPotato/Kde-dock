@@ -312,6 +312,25 @@ int ConfigWatcher::autohideDelayMs() const
     return m_config.value(QStringLiteral("autohideDelayMs")).toInt(2500);
 }
 
+// "edge" keeps the original behaviour, so a config that predates the setting
+// reveals the dock exactly as it always did.
+QString ConfigWatcher::autohideTriggerZone() const
+{
+    const QString v = m_config.value(QStringLiteral("autohideTriggerZone"))
+                          .toString(QStringLiteral("edge"));
+    static const QStringList valid{
+        QStringLiteral("edge"), QStringLiteral("dock"),
+    };
+    return valid.contains(v) ? v : QStringLiteral("edge");
+}
+
+// How far past the outermost icons the "dock" trigger zone reaches, so the
+// dock can be found without aiming at the exact first or last pixel.
+int ConfigWatcher::autohideTriggerMarginPx() const
+{
+    return qBound(0, m_config.value(QStringLiteral("autohideTriggerMarginPx")).toInt(48), 1000);
+}
+
 bool ConfigWatcher::magnify() const
 {
     return m_config.value(QStringLiteral("magnify")).toBool(true);
@@ -418,6 +437,13 @@ void ConfigWatcher::setAutohideDelayMs(int ms)
     save();
 }
 
+void ConfigWatcher::setAutohideTriggerZone(const QString &zone)
+{
+    m_config[QStringLiteral("autohideTriggerZone")] = zone;
+    emit configChanged();
+    save();
+}
+
 void ConfigWatcher::setReserveSpace(bool on)
 {
     m_config[QStringLiteral("reserveSpace")] = on;
@@ -511,6 +537,8 @@ void ConfigWatcher::resetToDefaults()
         {QStringLiteral("autohide"),        false},
         {QStringLiteral("autohideMode"),    QStringLiteral("never")},
         {QStringLiteral("autohideDelayMs"), 2500},
+        {QStringLiteral("autohideTriggerZone"),     QStringLiteral("edge")},
+        {QStringLiteral("autohideTriggerMarginPx"), 48},
         {QStringLiteral("reserveSpace"),    true},
         {QStringLiteral("magnify"),         true},
         {QStringLiteral("magnifyScale"),    1.5},

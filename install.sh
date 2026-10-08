@@ -56,6 +56,14 @@ if [[ ${#MISSING[@]} -gt 0 ]]; then
     exit 1
 fi
 
+# CMakeLists.txt requires Qt 6.4; say so up front rather than failing in
+# the middle of configure. Only checked when pkg-config knows the version.
+if QT_VERSION=$(pkg-config --modversion Qt6Core 2>/dev/null) \
+   && ! pkg-config --atleast-version=6.4 Qt6Core; then
+    echo "ERROR: Qt ${QT_VERSION} found, but kdock needs Qt 6.4 or newer."
+    exit 1
+fi
+
 # ── Disk space check ───────────────────────────────────────────────────────
 # The compiler writes temp files to $TMPDIR (default /tmp), which is often a
 # small tmpfs. When it fills up, CMake misreports this as a "broken" compiler.

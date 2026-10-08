@@ -8,7 +8,7 @@
 cmake_minimum_required(VERSION 3.20)
 enable_testing()
 
-find_package(Qt6 REQUIRED COMPONENTS Test Core Gui DBus)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Test Core Gui DBus)
 
 # Helper macro: one test file → one binary → registered with ctest
 macro(kdock_test NAME)
