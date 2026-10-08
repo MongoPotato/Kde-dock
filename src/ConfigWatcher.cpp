@@ -76,9 +76,17 @@ void ConfigWatcher::onFileChanged(const QString &path)
 
 // ── Position & geometry ────────────────────────────────────────────────────
 
+// Anything but the four edges falls back to "bottom", so the surface anchor,
+// the input mask and the QML layout can never disagree about an odd value.
 QString ConfigWatcher::position() const
 {
-    return m_config.value(QStringLiteral("position")).toString(QStringLiteral("bottom"));
+    const QString v = m_config.value(QStringLiteral("position"))
+                          .toString(QStringLiteral("bottom"));
+    static const QStringList valid{
+        QStringLiteral("bottom"), QStringLiteral("top"),
+        QStringLiteral("left"),   QStringLiteral("right"),
+    };
+    return valid.contains(v) ? v : QStringLiteral("bottom");
 }
 
 // Which compositor layer the dock's surface goes on. Defaults to "top": a
