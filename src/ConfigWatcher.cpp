@@ -329,26 +329,8 @@ QString ConfigWatcher::autohideTriggerZone() const
 int ConfigWatcher::autohideTriggerMarginPx() const
 {
     return qBound(0, m_config.value(QStringLiteral("autohideTriggerMarginPx")).toInt(48), 1000);
-bool ConfigWatcher::pushWindows() const
-{
-    return m_config.value(QStringLiteral("pushWindows")).toBool(false);
-// "edge" keeps the original behaviour, so a config that predates the setting
-// reveals the dock exactly as it always did.
-QString ConfigWatcher::autohideTriggerZone() const
-{
-    const QString v = m_config.value(QStringLiteral("autohideTriggerZone"))
-                          .toString(QStringLiteral("edge"));
-    static const QStringList valid{
-        QStringLiteral("edge"), QStringLiteral("dock"),
-    };
-    return valid.contains(v) ? v : QStringLiteral("edge");
 }
 
-// How far past the outermost icons the "dock" trigger zone reaches, so the
-// dock can be found without aiming at the exact first or last pixel.
-int ConfigWatcher::autohideTriggerMarginPx() const
-{
-    return qBound(0, m_config.value(QStringLiteral("autohideTriggerMarginPx")).toInt(48), 1000);
 bool ConfigWatcher::pushWindows() const
 {
     return m_config.value(QStringLiteral("pushWindows")).toBool(false);

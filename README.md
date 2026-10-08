@@ -166,8 +166,8 @@ apply immediately, no restart needed.
 Open the in-app settings panel via right-click → **Dock settings…** to
 adjust icon size, hover lift/magnify, dock position and opacity, icon
 background shape, blur-behind, adaptive colour tint, and auto-hide (plus
-its hide delay and whether it pushes windows aside) — or edit `dock.json`
-directly:
+its hide delay, reveal area and whether it pushes windows aside) — or edit
+`dock.json` directly:
 
 ```jsonc
 {

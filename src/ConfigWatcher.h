@@ -84,16 +84,6 @@ class ConfigWatcher : public QObject {
     // of its way, and put them back when it hides (done by a KWin script,
     // see WindowPusher). Off by default.
     Q_PROPERTY(bool pushWindows READ pushWindows NOTIFY configChanged)
-    // Where the cursor has to be to reveal the auto-hidden dock and to keep
-    // it up:
-    //   "edge" — anywhere along the dock's screen edge (the default)
-    //   "dock" — only over the icons, plus autohideTriggerMarginPx either side
-    Q_PROPERTY(QString autohideTriggerZone READ autohideTriggerZone NOTIFY configChanged)
-    Q_PROPERTY(int autohideTriggerMarginPx READ autohideTriggerMarginPx NOTIFY configChanged)
-    // While auto-hide is on: move windows the revealed dock would cover out
-    // of its way, and put them back when it hides (done by a KWin script,
-    // see WindowPusher). Off by default.
-    Q_PROPERTY(bool pushWindows READ pushWindows NOTIFY configChanged)
     Q_PROPERTY(bool magnify READ magnify NOTIFY configChanged)
     Q_PROPERTY(double magnifyScale READ magnifyScale NOTIFY configChanged)
     Q_PROPERTY(int magnifyRadius READ magnifyRadius NOTIFY configChanged)
