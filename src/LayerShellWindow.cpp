@@ -73,6 +73,26 @@ static zwlr_layer_shell_v1_layer layerEnum(const QString &name)
     return ZWLR_LAYER_SHELL_V1_LAYER_TOP;
 }
 
+// Pinned to one edge and stretched along it.
+static uint32_t anchorBits(const QString &anchor)
+{
+    if (anchor == QStringLiteral("top"))
+        return ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP
+             | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT
+             | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
+    if (anchor == QStringLiteral("left"))
+        return ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT
+             | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP
+             | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM;
+    if (anchor == QStringLiteral("right"))
+        return ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT
+             | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP
+             | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM;
+    return ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM
+         | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT
+         | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
+}
+
 // ── LayerShellWindow ───────────────────────────────────────────────────────
 
 LayerShellWindow::LayerShellWindow()
@@ -193,25 +213,7 @@ void LayerShellWindow::setupWaylandLayerSurface()
     m_boundScreen = output ? screen() : nullptr;
     m_surfaceClosed = false;
 
-    uint32_t anchorBits = 0;
-    if (m_anchor == QStringLiteral("bottom")) {
-        anchorBits = ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM
-                   | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT
-                   | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
-    } else if (m_anchor == QStringLiteral("top")) {
-        anchorBits = ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP
-                   | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT
-                   | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
-    } else if (m_anchor == QStringLiteral("left")) {
-        anchorBits = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT
-                   | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP
-                   | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM;
-    } else {
-        anchorBits = ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT
-                   | ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP
-                   | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM;
-    }
-    zwlr_layer_surface_v1_set_anchor(m_layerSurface, anchorBits);
+    zwlr_layer_surface_v1_set_anchor(m_layerSurface, anchorBits(m_anchor));
 
     // Exclusive zone reserves screen space so maximised windows don't overlap.
     // Uses m_exclusiveZone (visual strip height) not m_thickness (full window height).
@@ -305,7 +307,11 @@ QPoint LayerShellWindow::mapToScreen(qreal x, qreal y) const
 
 void LayerShellWindow::setAnchor(const QString &anchor)
 {
+    if (m_anchor == anchor) return;
     m_anchor = anchor;
+    // mapToScreen() depends on the edge, so popups must re-place themselves.
+    // The surface itself only moves on the next applyGeometryUpdate().
+    emit dockScreenRectChanged();
 }
 
 void LayerShellWindow::setLayer(const QString &layer)
@@ -332,7 +338,17 @@ void LayerShellWindow::setInteractiveThickness(int px)
 
 void LayerShellWindow::applyGeometryUpdate()
 {
-    if (!m_isWayland || !m_layerSurface) return;
+    if (!m_isWayland || !m_layerShell) {
+        // X11 fallback: the window sits at absolute coordinates, so a new
+        // edge or thickness has to be applied by hand.
+        if (isVisible()) {
+            applyX11Geometry();
+            applyInputMask();
+            emit dockScreenRectChanged();
+        }
+        return;
+    }
+    if (!m_layerSurface) return;
 
     QPlatformNativeInterface *ni = QGuiApplication::platformNativeInterface();
     if (!ni) return;
@@ -341,6 +357,12 @@ void LayerShellWindow::applyGeometryUpdate()
         ni->nativeResourceForWindow("wl_surface", this));
     if (!surface) return;
 
+    // The anchor has to be re-sent too: it used to be set only when the surface
+    // was created, so changing the dock position in settings left the surface
+    // stuck on the bottom edge while the QML laid itself out for another one.
+    // Anchor and size go out in the same commit — a vertical size with
+    // horizontal anchors (or vice versa) is a protocol error.
+    zwlr_layer_surface_v1_set_anchor(m_layerSurface, anchorBits(m_anchor));
     zwlr_layer_surface_v1_set_exclusive_zone(m_layerSurface, m_exclusiveZone);
 
     // The surface is always the full configured thickness. Auto-hide is done
