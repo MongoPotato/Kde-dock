@@ -78,14 +78,19 @@ Item {
     // compositor is asked to reserve. Computing it here as
     // iconSize + padding * 2 made the background SHORTER than the icon row it
     // contains — icon pills and glow rings poked out of the top of the bar.
+    //
+    // Placed with x/y rather than anchors, here and for the icon row and
+    // column below. Anchors that switch on and off with the position leave
+    // stale geometry behind when the position changes at runtime: going from
+    // bottom to top, both the top and bottom anchors are briefly set, which
+    // stretches the strip to the full window, and removing the bottom anchor
+    // afterwards does not shrink it back. The oversized strip then no longer
+    // slid fully off screen when the dock auto-hid.
     Rectangle {
         readonly property int stripSize: config.dockVisualThickness
 
-        anchors.left:   (isHorizontal || position === "left")  ? parent.left  : undefined
-        anchors.right:  (isHorizontal || position === "right") ? parent.right : undefined
-        anchors.top:    (position === "top"    || !isHorizontal) ? parent.top    : undefined
-        anchors.bottom: (position === "bottom" || !isHorizontal) ? parent.bottom : undefined
-
+        x: position === "right"  ? parent.width  - width  : 0
+        y: position === "bottom" ? parent.height - height : 0
         width:  isHorizontal ? parent.width : stripSize
         height: isHorizontal ? stripSize    : parent.height
 
@@ -150,11 +155,10 @@ Item {
     // ── Icon layout ───────────────────────────────────────────────────────
     Row {
         id: itemRow
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: position === "bottom" ? parent.bottom : undefined
-        anchors.top:    position === "top"    ? parent.top    : undefined
-        anchors.bottomMargin: position === "bottom" ? config.padding : 0
-        anchors.topMargin:    position === "top"    ? config.padding : 0
+        // Centred along the edge, `padding` in from it (see the background).
+        x: Math.round((parent.width - width) / 2)
+        y: position === "bottom" ? parent.height - height - config.padding
+                                 : config.padding
         visible: isHorizontal
         spacing: config.spacing
 
@@ -170,11 +174,9 @@ Item {
 
     Column {
         id: itemColumn
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.left:  position === "left"  ? parent.left  : undefined
-        anchors.right: position === "right" ? parent.right : undefined
-        anchors.leftMargin:  position === "left"  ? config.padding : 0
-        anchors.rightMargin: position === "right" ? config.padding : 0
+        x: position === "right" ? parent.width - width - config.padding
+                                : config.padding
+        y: Math.round((parent.height - height) / 2)
         visible: !isHorizontal
         spacing: config.spacing
 
